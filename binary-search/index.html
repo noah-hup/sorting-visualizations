@@ -45,6 +45,7 @@
     gap: 8px;
   }
   .bar{
+    position: relative;
     width: 36px;
     background: var(--bar);
     border-radius: 4px 4px 0 0;
@@ -52,6 +53,26 @@
   }
   .bar.active{ background: var(--bar-active); }
   .value{ font-size: 0.85rem; font-weight: 600; }
+
+  .marks{
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    margin-bottom: 4px;
+  }
+  .mark{
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--text);
+    line-height: 1;
+    white-space: nowrap;
+  }
 
   button{
     border: none;
@@ -71,6 +92,7 @@
       color-scheme: dark;
     }
     :root:not([data-theme="light"]) button{ background: var(--bar); color:#111111; }
+    :root:not([data-theme="light"]) .mark{ color: var(--text); }
   }
   :root[data-theme="dark"]{
     --bg:#111111; --bar:#f2f2f2; --bar-active:#5a5a5a; --text:#f2f2f2; --muted:#8a8a8a;
@@ -106,47 +128,69 @@
     const bar = document.createElement('div');
     bar.className = 'bar';
     bar.style.height = Math.max(20, (val / maxVal) * maxHeight) + 'px';
+    const marks = document.createElement('div');
+    marks.className = 'marks';
+    bar.appendChild(marks);
     wrap.appendChild(valueLabel);
     wrap.appendChild(bar);
     chart.appendChild(wrap);
-    return bar;
+    return { bar, marks };
   });
 
-  function buildMids(array, target){
-    const mids = [];
-    let low = 0, high = array.length - 1;
-    while(low <= high){
-      const mid = Math.floor((low+high)/2);
-      mids.push(mid);
-      if(array[mid] === target) break;
-      else if(array[mid] < target) low = mid + 1;
-      else high = mid - 1;
+  // l + (r-l)/2, gemäß:
+  // solange l<=r:
+  //   mitte = l + (r-l)/2
+  //   gesucht == arr[mitte]  -> gefunden
+  //   gesucht <  arr[mitte]  -> rechte Grenze = mitte-1
+  //   gesucht >= arr[mitte]  -> linke Grenze  = mitte+1
+  function buildSteps(array, target){
+    const steps = [];
+    let l = 0, r = array.length - 1;
+    while(l <= r){
+      const mitte = l + Math.floor((r - l) / 2);
+      steps.push({ l, r, mitte });
+      if(target === array[mitte]) break;
+      else if(target < array[mitte]) r = mitte - 1;
+      else l = mitte + 1;
     }
-    return mids;
+    return steps;
   }
 
-  const mids = buildMids(arr, target);
+  const steps = buildSteps(arr, target);
   let playing = false;
 
-  function clearActive(){
-    bars.forEach(b => b.classList.remove('active'));
+  function render(step){
+    bars.forEach(({ bar, marks }, idx) => {
+      bar.classList.toggle('active', idx === step.mitte);
+      const tags = [];
+      if(idx === step.l) tags.push('L');
+      if(idx === step.mitte) tags.push('M');
+      if(idx === step.r) tags.push('R');
+      marks.innerHTML = tags.map(t => `<div class="mark">${t}</div>`).join('');
+    });
+  }
+
+  function clearAll(){
+    bars.forEach(({ bar, marks }) => {
+      bar.classList.remove('active');
+      marks.innerHTML = '';
+    });
   }
 
   function play(){
     if(playing) return;
     playing = true;
     playBtn.disabled = true;
-    clearActive();
+    clearAll();
 
     let i = 0;
     function step(){
-      clearActive();
-      if(i >= mids.length){
+      if(i >= steps.length){
         playing = false;
         playBtn.disabled = false;
         return;
       }
-      bars[mids[i]].classList.add('active');
+      render(steps[i]);
       i++;
       setTimeout(step, STEP_MS);
     }
