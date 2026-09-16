@@ -9,7 +9,6 @@
     --bg: #ffffff;
     --bar: #111111;
     --bar-active: #b3b3b3;
-    --track: #e2e2e2;
     --text: #111111;
     --muted: #8a8a8a;
     color-scheme: light;
@@ -30,30 +29,33 @@
     padding-top: calc(24px + env(safe-area-inset-top, 0px));
   }
 
+  .legend{ display:flex; gap: 16px; font-size: 0.7rem; color: var(--muted); }
+  .legend span{ display:inline-flex; align-items:center; gap:5px; }
+  .swatch{ width: 10px; height: 10px; background: var(--bar); }
+  .swatch.unsorted{ opacity: 0.35; }
+
   .chart{
-    display: flex;
-    align-items: flex-end;
-    gap: 14px;
+    position: relative;
     height: 200px;
   }
   .bar-wrap{
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 36px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
+    transition: transform 0.5s cubic-bezier(.4,0,.2,1);
   }
   .bar{
     width: 36px;
     background: var(--bar);
-    transition: background 0.4s ease, height 0.5s ease;
+    transition: background 0.3s ease, opacity 0.3s ease;
   }
-  .bar.active{ background: var(--bar-active); }
+  .bar.active{ background: var(--bar-active); opacity: 1 !important; }
   .value{ font-size: 0.85rem; font-weight: 600; }
-
-  .regions{ position: relative; height: 4px; }
-  .region-track{ position: absolute; inset: 0; background: var(--track); }
-  .region-sorted{ position: absolute; top: 0; left: 0; height: 100%; width: 0; background: var(--bar); transition: width 0.5s ease; }
-  .region-labels{ display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--muted); margin-top: 4px; }
 
   .markers{
     position: relative;
@@ -67,7 +69,7 @@
     font-size: 0.65rem;
     font-weight: 700;
     color: var(--text);
-    transition: transform 0.6s cubic-bezier(.4,0,.2,1), opacity 0.3s ease;
+    transition: transform 0.5s cubic-bezier(.4,0,.2,1), opacity 0.3s ease;
     opacity: 0;
   }
   .marker.visible{ opacity: 1; }
@@ -90,29 +92,23 @@
 
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
-      --bg:#111111; --bar:#f2f2f2; --bar-active:#5a5a5a; --track:#2a2a2a; --text:#f2f2f2; --muted:#8a8a8a;
+      --bg:#111111; --bar:#f2f2f2; --bar-active:#5a5a5a; --text:#f2f2f2; --muted:#8a8a8a;
       color-scheme: dark;
     }
   }
   :root[data-theme="dark"]{
-    --bg:#111111; --bar:#f2f2f2; --bar-active:#5a5a5a; --track:#2a2a2a; --text:#f2f2f2; --muted:#8a8a8a;
+    --bg:#111111; --bar:#f2f2f2; --bar-active:#5a5a5a; --text:#f2f2f2; --muted:#8a8a8a;
     color-scheme: dark;
   }
 </style>
 </head>
 <body>
-  <div class="chart" id="chart"></div>
-
-  <div>
-    <div class="regions" id="regions">
-      <div class="region-track"></div>
-      <div class="region-sorted" id="regionSorted"></div>
-    </div>
-    <div class="region-labels" id="regionLabels">
-      <span>sortiert</span>
-      <span>unsortiert</span>
-    </div>
+  <div class="legend">
+    <span><i class="swatch"></i> sortiert</span>
+    <span><i class="swatch unsorted"></i> unsortiert</span>
   </div>
+
+  <div class="chart" id="chart"></div>
 
   <div class="markers" id="markers">
     <div class="marker" id="markerI">i</div>
@@ -135,9 +131,6 @@
   const maxHeight = 160;
 
   const chart = document.getElementById('chart');
-  const regionsEl = document.getElementById('regions');
-  const regionLabels = document.getElementById('regionLabels');
-  const regionSorted = document.getElementById('regionSorted');
   const markersEl = document.getElementById('markers');
   const changeBtn = document.getElementById('change');
   const playBtn = document.getElementById('play');
@@ -147,10 +140,10 @@
   const OFFSET = { I: -9, MIN: 0, J: 9 };
 
   const totalWidth = N * BAR_WIDTH + (N - 1) * GAP;
-  regionsEl.style.width = totalWidth + 'px';
-  regionLabels.style.width = totalWidth + 'px';
+  chart.style.width = totalWidth + 'px';
   markersEl.style.width = totalWidth + 'px';
 
+  // bars: eine feste Objekt-Identität pro Wert, "slot" = aktuelle Position im Array.
   const bars = [];
   for(let i = 0; i < N; i++){
     const wrap = document.createElement('div');
@@ -162,8 +155,10 @@
     wrap.appendChild(valueLabel);
     wrap.appendChild(bar);
     chart.appendChild(wrap);
-    bars.push({ valueLabel, bar });
+    bars.push({ wrap, bar, valueLabel, value: 0 });
   }
+
+  let order = bars.slice(); // order[slot] = bar-Objekt an dieser Position
 
   function randomArray(n){
     const set = new Set();
@@ -171,36 +166,35 @@
     return Array.from(set);
   }
 
-  // 2 Bereiche: sortiert (leer am Anfang) | unsortiert (ganzes Array)
+  function placeSlots(){
+    order.forEach((barObj, slot) => {
+      barObj.wrap.style.transform = `translateX(${slot * COLUMN}px)`;
+    });
+  }
+
   // for i in 0..n-2:
   //   minI = i
   //   for j in i+1..n-1:
   //     wenn a[j] < a[minI] -> minI = j
   //   tausche a[i] und a[minI]
-  function buildSteps(inputArray){
-    const arr = inputArray.slice();
+  function buildOps(values){
+    const arr = values.slice();
     const n = arr.length;
-    const steps = [];
+    const ops = [];
     for(let i = 0; i < n - 1; i++){
       let minI = i;
-      steps.push({ i, minI, j: null, arr: arr.slice(), sortedUpTo: i });
+      ops.push({ type: 'start', i, minI, j: null });
       for(let j = i + 1; j < n; j++){
         if(arr[j] < arr[minI]) minI = j;
-        steps.push({ i, minI, j, arr: arr.slice(), sortedUpTo: i });
+        ops.push({ type: 'compare', i, minI, j });
       }
-      const tmp = arr[i]; arr[i] = arr[minI]; arr[minI] = tmp;
-      steps.push({ i, minI, j: null, arr: arr.slice(), sortedUpTo: i + 1, swapped: true });
+      if(minI !== i){
+        const tmp = arr[i]; arr[i] = arr[minI]; arr[minI] = tmp;
+      }
+      ops.push({ type: 'swap', i, minI });
     }
-    steps.push({ i: null, minI: null, j: null, arr: arr.slice(), sortedUpTo: n, done: true });
-    return steps;
-  }
-
-  function updateBars(array){
-    const maxVal = Math.max(...array);
-    array.forEach((val, idx) => {
-      bars[idx].valueLabel.textContent = val;
-      bars[idx].bar.style.height = Math.max(20, (val / maxVal) * maxHeight) + 'px';
-    });
+    ops.push({ type: 'done' });
+    return ops;
   }
 
   function moveMarker(el, idx, offset){
@@ -212,21 +206,58 @@
     el.classList.add('visible');
   }
 
-  function setSortedWidth(count){
-    const w = count > 0 ? count * COLUMN - GAP : 0;
-    regionSorted.style.width = Math.max(0, w) + 'px';
+  function applyFill(sortedUpTo, activeBars){
+    order.forEach((barObj, slot) => {
+      const isActive = activeBars.includes(barObj);
+      barObj.bar.classList.toggle('active', isActive);
+      barObj.bar.style.opacity = isActive ? '1' : (slot < sortedUpTo ? '1' : '0.35');
+    });
   }
 
-  function render(step){
-    updateBars(step.arr);
-    bars.forEach(({ bar }, idx) => {
-      const isActive = !step.done && ((step.j !== null && idx === step.j) || (step.swapped && (idx === step.i || idx === step.minI)));
-      bar.classList.toggle('active', isActive);
+  function render(op, sortedUpTo){
+    if(op.type === 'done'){
+      moveMarker(markerI, null); moveMarker(markerMin, null); moveMarker(markerJ, null);
+      applyFill(N, []);
+      return;
+    }
+    if(op.type === 'start'){
+      moveMarker(markerI, op.i, OFFSET.I);
+      moveMarker(markerMin, op.minI, OFFSET.MIN);
+      moveMarker(markerJ, null);
+      applyFill(sortedUpTo, []);
+      return;
+    }
+    if(op.type === 'compare'){
+      moveMarker(markerI, op.i, OFFSET.I);
+      moveMarker(markerMin, op.minI, OFFSET.MIN);
+      moveMarker(markerJ, op.j, OFFSET.J);
+      applyFill(sortedUpTo, [order[op.j]]);
+      return;
+    }
+    if(op.type === 'swap'){
+      moveMarker(markerI, op.i, OFFSET.I);
+      moveMarker(markerMin, op.minI, OFFSET.MIN);
+      moveMarker(markerJ, null);
+      const a = order[op.i], b = order[op.minI];
+      applyFill(sortedUpTo, [a, b]);
+      if(op.i !== op.minI){
+        order[op.i] = b;
+        order[op.minI] = a;
+        placeSlots();
+      }
+    }
+  }
+
+  function updateValues(array){
+    array.forEach((val, idx) => {
+      const barObj = bars[idx];
+      barObj.value = val;
+      barObj.valueLabel.textContent = val;
     });
-    moveMarker(markerI, step.done ? null : step.i, OFFSET.I);
-    moveMarker(markerMin, step.done ? null : step.minI, OFFSET.MIN);
-    moveMarker(markerJ, step.j, OFFSET.J);
-    setSortedWidth(step.sortedUpTo);
+    const maxVal = Math.max(...array);
+    bars.forEach(barObj => {
+      barObj.bar.style.height = Math.max(20, (barObj.value / maxVal) * maxHeight) + 'px';
+    });
   }
 
   let playing = false;
@@ -235,10 +266,11 @@
   function changeValues(){
     if(playing) return;
     currentArr = randomArray(N);
-    updateBars(currentArr);
-    bars.forEach(({ bar }) => bar.classList.remove('active'));
-    [markerI, markerMin, markerJ].forEach(m => m.classList.remove('visible'));
-    setSortedWidth(0);
+    order = bars.slice();
+    placeSlots();
+    updateValues(currentArr);
+    applyFill(0, []);
+    moveMarker(markerI, null); moveMarker(markerMin, null); moveMarker(markerJ, null);
   }
 
   function play(){
@@ -247,17 +279,25 @@
     playBtn.disabled = true;
     changeBtn.disabled = true;
 
-    const steps = buildSteps(currentArr);
-    let i = 0;
+    order = bars.slice();
+    placeSlots();
+    updateValues(currentArr);
+
+    const ops = buildOps(currentArr);
+    let idx = 0;
+    let sortedUpTo = 0;
     function step(){
-      if(i >= steps.length){
+      if(idx >= ops.length){
         playing = false;
         playBtn.disabled = false;
         changeBtn.disabled = false;
         return;
       }
-      render(steps[i]);
-      i++;
+      const op = ops[idx];
+      render(op, sortedUpTo);
+      if(op.type === 'swap') sortedUpTo = op.i + 1;
+      if(op.type === 'done') sortedUpTo = N;
+      idx++;
       setTimeout(step, STEP_MS);
     }
     step();
