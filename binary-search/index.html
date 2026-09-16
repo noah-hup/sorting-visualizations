@@ -69,21 +69,19 @@
   }
   .marker.visible{ opacity: 1; }
 
-  .controls{ display: flex; gap: 10px; }
+  .controls{ display: flex; gap: 18px; }
 
   button{
-    border: 2px solid var(--bar);
-    background: var(--bar);
-    color: #fff;
-    font-size: 0.95rem;
-    font-weight: 600;
-    padding: 10px 22px;
-    border-radius: 999px;
-    cursor: pointer;
-  }
-  button.btn-ghost{
-    background: transparent;
+    border: none;
+    background: none;
     color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
   button:disabled{ opacity: 0.35; cursor: not-allowed; }
 
@@ -92,15 +90,11 @@
       --bg:#111111; --bar:#f2f2f2; --bar-active:#5a5a5a; --text:#f2f2f2; --muted:#8a8a8a;
       color-scheme: dark;
     }
-    :root:not([data-theme="light"]) button{ background: var(--bar); color:#111111; }
-    :root:not([data-theme="light"]) button.btn-ghost{ background: transparent; color: var(--text); }
   }
   :root[data-theme="dark"]{
     --bg:#111111; --bar:#f2f2f2; --bar-active:#5a5a5a; --text:#f2f2f2; --muted:#8a8a8a;
     color-scheme: dark;
   }
-  :root[data-theme="dark"] button{ background: var(--bar); color:#111111; }
-  :root[data-theme="dark"] button.btn-ghost{ background: transparent; color: var(--text); }
 </style>
 </head>
 <body>
@@ -112,8 +106,8 @@
     <div class="marker" id="markerL">L</div>
   </div>
   <div class="controls">
-    <button class="btn-ghost" id="change">🔀 Werte ändern</button>
-    <button id="play">▶ Play</button>
+    <button id="change">Werte ändern</button>
+    <button id="play">Play</button>
   </div>
 
 <script>
