@@ -24,7 +24,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 28px;
+    gap: 18px;
     padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px));
     padding-top: calc(24px + env(safe-area-inset-top, 0px));
   }
@@ -47,26 +47,33 @@
   .bar{
     width: 36px;
     background: var(--bar);
-    transition: background 0.3s ease;
+    transition: background 0.4s ease;
   }
   .bar.active{ background: var(--bar-active); }
   .value{ font-size: 0.85rem; font-weight: 600; }
 
-  .marks{
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    min-height: 14px;
+  .markers{
+    position: relative;
+    height: 60px;
   }
-  .mark{
+  .marker-row{
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 16px;
+  }
+  .marker{
+    position: absolute;
+    top: 0;
+    width: 36px;
+    text-align: center;
     font-size: 0.65rem;
     font-weight: 700;
-    letter-spacing: 0.02em;
     color: var(--text);
-    line-height: 1;
-    white-space: nowrap;
+    transition: transform 0.6s cubic-bezier(.4,0,.2,1), opacity 0.3s ease;
+    opacity: 0;
   }
+  .marker.visible{ opacity: 1; }
 
   button{
     border: none;
@@ -86,7 +93,6 @@
       color-scheme: dark;
     }
     :root:not([data-theme="light"]) button{ background: var(--bar); color:#111111; }
-    :root:not([data-theme="light"]) .mark{ color: var(--text); }
   }
   :root[data-theme="dark"]{
     --bg:#111111; --bar:#f2f2f2; --bar-active:#5a5a5a; --text:#f2f2f2; --muted:#8a8a8a;
@@ -96,40 +102,54 @@
 </style>
 </head>
 <body>
-  <div class="target">Suche nach <b id="targetLabel"></b></div>
+  <div class="target">Suche nach <b id="targetLabel">–</b></div>
   <div class="chart" id="chart"></div>
+  <div class="markers" id="markers">
+    <div class="marker-row" style="top:0"><div class="marker" id="markerR">R</div></div>
+    <div class="marker-row" style="top:20px"><div class="marker" id="markerM">M</div></div>
+    <div class="marker-row" style="top:40px"><div class="marker" id="markerL">L</div></div>
+  </div>
   <button id="play">▶ Play</button>
 
 <script>
 (function(){
-  const arr = [2, 5, 9, 13, 18, 24, 31];
-  const target = 18;
+  const N = 7;
+  const BAR_WIDTH = 36;
+  const GAP = 14;
+  const COLUMN = BAR_WIDTH + GAP;
   const STEP_MS = 2200;
-
-  const chart = document.getElementById('chart');
-  const playBtn = document.getElementById('play');
-  document.getElementById('targetLabel').textContent = target;
-
-  const maxVal = Math.max(...arr);
   const maxHeight = 160;
 
-  const bars = arr.map(val => {
+  const chart = document.getElementById('chart');
+  const markersEl = document.getElementById('markers');
+  const playBtn = document.getElementById('play');
+  const targetLabel = document.getElementById('targetLabel');
+  const markerR = document.getElementById('markerR');
+  const markerM = document.getElementById('markerM');
+  const markerL = document.getElementById('markerL');
+
+  const totalWidth = N * BAR_WIDTH + (N - 1) * GAP;
+  markersEl.style.width = totalWidth + 'px';
+
+  const bars = [];
+  for(let i = 0; i < N; i++){
     const wrap = document.createElement('div');
     wrap.className = 'bar-wrap';
     const valueLabel = document.createElement('div');
     valueLabel.className = 'value';
-    valueLabel.textContent = val;
     const bar = document.createElement('div');
     bar.className = 'bar';
-    bar.style.height = Math.max(20, (val / maxVal) * maxHeight) + 'px';
-    const marks = document.createElement('div');
-    marks.className = 'marks';
     wrap.appendChild(valueLabel);
     wrap.appendChild(bar);
-    wrap.appendChild(marks);
     chart.appendChild(wrap);
-    return { bar, marks };
-  });
+    bars.push({ valueLabel, bar });
+  }
+
+  function randomSortedArray(n){
+    const set = new Set();
+    while(set.size < n) set.add(Math.floor(Math.random() * 50) + 1);
+    return Array.from(set).sort((a, b) => a - b);
+  }
 
   // l + (r-l)/2, gemäß:
   // solange l<=r:
@@ -150,33 +170,41 @@
     return steps;
   }
 
-  const steps = buildSteps(arr, target);
-  let playing = false;
+  function setArray(array){
+    const maxVal = Math.max(...array);
+    array.forEach((val, idx) => {
+      bars[idx].valueLabel.textContent = val;
+      bars[idx].bar.style.height = Math.max(20, (val / maxVal) * maxHeight) + 'px';
+      bars[idx].bar.classList.remove('active');
+    });
+  }
+
+  function moveMarker(el, idx){
+    el.style.transform = `translateX(${idx * COLUMN}px)`;
+    el.classList.add('visible');
+  }
 
   function render(step){
-    bars.forEach(({ bar, marks }, idx) => {
-      bar.classList.toggle('active', idx === step.mitte);
-      const tags = [];
-      if(idx === step.r) tags.push('R');
-      if(idx === step.mitte) tags.push('M');
-      if(idx === step.l) tags.push('L');
-      marks.innerHTML = tags.map(t => `<div class="mark">${t}</div>`).join('');
-    });
+    bars.forEach(({ bar }, idx) => bar.classList.toggle('active', idx === step.mitte));
+    moveMarker(markerR, step.r);
+    moveMarker(markerM, step.mitte);
+    moveMarker(markerL, step.l);
   }
 
-  function clearAll(){
-    bars.forEach(({ bar, marks }) => {
-      bar.classList.remove('active');
-      marks.innerHTML = '';
-    });
-  }
+  let playing = false;
 
   function play(){
     if(playing) return;
     playing = true;
     playBtn.disabled = true;
-    clearAll();
+    [markerR, markerM, markerL].forEach(m => m.classList.remove('visible'));
 
+    const arr = randomSortedArray(N);
+    const target = arr[Math.floor(Math.random() * arr.length)];
+    targetLabel.textContent = target;
+    setArray(arr);
+
+    const steps = buildSteps(arr, target);
     let i = 0;
     function step(){
       if(i >= steps.length){
@@ -192,6 +220,8 @@
   }
 
   playBtn.addEventListener('click', play);
+
+  setArray(randomSortedArray(N));
 })();
 </script>
 </body>
