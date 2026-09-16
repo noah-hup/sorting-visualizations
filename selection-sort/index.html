@@ -52,14 +52,13 @@
   .bar{
     width: 36px;
     background: var(--bar);
-    transition: background 0.3s ease, opacity 0.3s ease;
+    transition: opacity 0.3s ease;
   }
-  .bar.active{ background: var(--bar-active); opacity: 1 !important; }
   .value{ font-size: 0.85rem; font-weight: 600; }
 
   .markers{
     position: relative;
-    height: 16px;
+    height: 50px;
   }
   .marker{
     position: absolute;
@@ -69,7 +68,7 @@
     font-size: 0.65rem;
     font-weight: 700;
     color: var(--text);
-    transition: transform 0.5s cubic-bezier(.4,0,.2,1), opacity 0.3s ease;
+    transition: transform 0.5s cubic-bezier(.4,0,.2,1), top 0.3s ease, opacity 0.3s ease;
     opacity: 0;
   }
   .marker.visible{ opacity: 1; }
@@ -137,7 +136,7 @@
   const markerI = document.getElementById('markerI');
   const markerMin = document.getElementById('markerMin');
   const markerJ = document.getElementById('markerJ');
-  const OFFSET = { I: -9, MIN: 0, J: 9 };
+  const ROW = 16;
 
   const totalWidth = N * BAR_WIDTH + (N - 1) * GAP;
   chart.style.width = totalWidth + 'px';
@@ -197,50 +196,57 @@
     return ops;
   }
 
-  function moveMarker(el, idx, offset){
-    if(idx === null || idx === undefined){
-      el.classList.remove('visible');
-      return;
-    }
-    el.style.transform = `translateX(${idx * COLUMN + offset}px)`;
-    el.classList.add('visible');
+  // i, min, j gleiche Position -> untereinander stapeln statt nebeneinander versetzen
+  function layoutMarkers(iIdx, minIdx, jIdx){
+    const entries = [
+      { el: markerI, idx: iIdx },
+      { el: markerMin, idx: minIdx },
+      { el: markerJ, idx: jIdx },
+    ];
+    const groups = {};
+    entries.forEach(e => {
+      if(e.idx === null || e.idx === undefined){
+        e.el.classList.remove('visible');
+        return;
+      }
+      (groups[e.idx] = groups[e.idx] || []).push(e);
+    });
+    Object.values(groups).forEach(group => {
+      group.forEach((e, row) => {
+        e.el.style.transform = `translateX(${e.idx * COLUMN}px)`;
+        e.el.style.top = (row * ROW) + 'px';
+        e.el.classList.add('visible');
+      });
+    });
   }
 
-  function applyFill(sortedUpTo, activeBars){
+  function applyFill(sortedUpTo){
     order.forEach((barObj, slot) => {
-      const isActive = activeBars.includes(barObj);
-      barObj.bar.classList.toggle('active', isActive);
-      barObj.bar.style.opacity = isActive ? '1' : (slot < sortedUpTo ? '1' : '0.35');
+      barObj.bar.style.opacity = slot < sortedUpTo ? '1' : '0.35';
     });
   }
 
   function render(op, sortedUpTo){
     if(op.type === 'done'){
-      moveMarker(markerI, null); moveMarker(markerMin, null); moveMarker(markerJ, null);
-      applyFill(N, []);
+      layoutMarkers(null, null, null);
+      applyFill(N);
       return;
     }
     if(op.type === 'start'){
-      moveMarker(markerI, op.i, OFFSET.I);
-      moveMarker(markerMin, op.minI, OFFSET.MIN);
-      moveMarker(markerJ, null);
-      applyFill(sortedUpTo, []);
+      layoutMarkers(op.i, op.minI, null);
+      applyFill(sortedUpTo);
       return;
     }
     if(op.type === 'compare'){
-      moveMarker(markerI, op.i, OFFSET.I);
-      moveMarker(markerMin, op.minI, OFFSET.MIN);
-      moveMarker(markerJ, op.j, OFFSET.J);
-      applyFill(sortedUpTo, [order[op.j]]);
+      layoutMarkers(op.i, op.minI, op.j);
+      applyFill(sortedUpTo);
       return;
     }
     if(op.type === 'swap'){
-      moveMarker(markerI, op.i, OFFSET.I);
-      moveMarker(markerMin, op.minI, OFFSET.MIN);
-      moveMarker(markerJ, null);
-      const a = order[op.i], b = order[op.minI];
-      applyFill(sortedUpTo, [a, b]);
+      layoutMarkers(op.i, op.minI, null);
+      applyFill(sortedUpTo);
       if(op.i !== op.minI){
+        const a = order[op.i], b = order[op.minI];
         order[op.i] = b;
         order[op.minI] = a;
         placeSlots();
@@ -269,8 +275,8 @@
     order = bars.slice();
     placeSlots();
     updateValues(currentArr);
-    applyFill(0, []);
-    moveMarker(markerI, null); moveMarker(markerMin, null); moveMarker(markerJ, null);
+    applyFill(0);
+    layoutMarkers(null, null, null);
   }
 
   function play(){
