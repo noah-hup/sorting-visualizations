@@ -45,25 +45,19 @@
     gap: 8px;
   }
   .bar{
-    position: relative;
     width: 36px;
     background: var(--bar);
-    border-radius: 4px 4px 0 0;
     transition: background 0.3s ease;
   }
   .bar.active{ background: var(--bar-active); }
   .value{ font-size: 0.85rem; font-weight: 600; }
 
   .marks{
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    margin-bottom: 4px;
+    min-height: 14px;
   }
   .mark{
     font-size: 0.65rem;
@@ -108,8 +102,8 @@
 
 <script>
 (function(){
-  const arr = [3, 7, 15, 22, 40];
-  const target = 7;
+  const arr = [2, 5, 9, 13, 18, 24, 31];
+  const target = 18;
   const STEP_MS = 2200;
 
   const chart = document.getElementById('chart');
@@ -130,9 +124,9 @@
     bar.style.height = Math.max(20, (val / maxVal) * maxHeight) + 'px';
     const marks = document.createElement('div');
     marks.className = 'marks';
-    bar.appendChild(marks);
     wrap.appendChild(valueLabel);
     wrap.appendChild(bar);
+    wrap.appendChild(marks);
     chart.appendChild(wrap);
     return { bar, marks };
   });
@@ -163,9 +157,9 @@
     bars.forEach(({ bar, marks }, idx) => {
       bar.classList.toggle('active', idx === step.mitte);
       const tags = [];
-      if(idx === step.l) tags.push('L');
-      if(idx === step.mitte) tags.push('M');
       if(idx === step.r) tags.push('R');
+      if(idx === step.mitte) tags.push('M');
+      if(idx === step.l) tags.push('L');
       marks.innerHTML = tags.map(t => `<div class="mark">${t}</div>`).join('');
     });
   }
