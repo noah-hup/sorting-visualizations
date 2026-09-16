@@ -54,12 +54,6 @@
 
   .markers{
     position: relative;
-    height: 60px;
-  }
-  .marker-row{
-    position: absolute;
-    left: 0;
-    width: 100%;
     height: 16px;
   }
   .marker{
@@ -75,15 +69,21 @@
   }
   .marker.visible{ opacity: 1; }
 
+  .controls{ display: flex; gap: 10px; }
+
   button{
-    border: none;
+    border: 2px solid var(--bar);
     background: var(--bar);
     color: #fff;
     font-size: 0.95rem;
     font-weight: 600;
-    padding: 10px 26px;
+    padding: 10px 22px;
     border-radius: 999px;
     cursor: pointer;
+  }
+  button.btn-ghost{
+    background: transparent;
+    color: var(--text);
   }
   button:disabled{ opacity: 0.35; cursor: not-allowed; }
 
@@ -93,23 +93,28 @@
       color-scheme: dark;
     }
     :root:not([data-theme="light"]) button{ background: var(--bar); color:#111111; }
+    :root:not([data-theme="light"]) button.btn-ghost{ background: transparent; color: var(--text); }
   }
   :root[data-theme="dark"]{
     --bg:#111111; --bar:#f2f2f2; --bar-active:#5a5a5a; --text:#f2f2f2; --muted:#8a8a8a;
     color-scheme: dark;
   }
   :root[data-theme="dark"] button{ background: var(--bar); color:#111111; }
+  :root[data-theme="dark"] button.btn-ghost{ background: transparent; color: var(--text); }
 </style>
 </head>
 <body>
   <div class="target">Suche nach <b id="targetLabel">–</b></div>
   <div class="chart" id="chart"></div>
   <div class="markers" id="markers">
-    <div class="marker-row" style="top:0"><div class="marker" id="markerR">R</div></div>
-    <div class="marker-row" style="top:20px"><div class="marker" id="markerM">M</div></div>
-    <div class="marker-row" style="top:40px"><div class="marker" id="markerL">L</div></div>
+    <div class="marker" id="markerR">R</div>
+    <div class="marker" id="markerM">M</div>
+    <div class="marker" id="markerL">L</div>
   </div>
-  <button id="play">▶ Play</button>
+  <div class="controls">
+    <button class="btn-ghost" id="change">🔀 Werte ändern</button>
+    <button id="play">▶ Play</button>
+  </div>
 
 <script>
 (function(){
@@ -122,11 +127,13 @@
 
   const chart = document.getElementById('chart');
   const markersEl = document.getElementById('markers');
+  const changeBtn = document.getElementById('change');
   const playBtn = document.getElementById('play');
   const targetLabel = document.getElementById('targetLabel');
   const markerR = document.getElementById('markerR');
   const markerM = document.getElementById('markerM');
   const markerL = document.getElementById('markerL');
+  const OFFSET = { R: -9, M: 0, L: 9 };
 
   const totalWidth = N * BAR_WIDTH + (N - 1) * GAP;
   markersEl.style.width = totalWidth + 'px';
@@ -179,37 +186,46 @@
     });
   }
 
-  function moveMarker(el, idx){
-    el.style.transform = `translateX(${idx * COLUMN}px)`;
+  function moveMarker(el, idx, offset){
+    el.style.transform = `translateX(${idx * COLUMN + offset}px)`;
     el.classList.add('visible');
   }
 
   function render(step){
     bars.forEach(({ bar }, idx) => bar.classList.toggle('active', idx === step.mitte));
-    moveMarker(markerR, step.r);
-    moveMarker(markerM, step.mitte);
-    moveMarker(markerL, step.l);
+    moveMarker(markerR, step.r, OFFSET.R);
+    moveMarker(markerM, step.mitte, OFFSET.M);
+    moveMarker(markerL, step.l, OFFSET.L);
   }
 
   let playing = false;
+  let currentArr = [];
+  let currentTarget = null;
+
+  function changeValues(){
+    if(playing) return;
+    currentArr = randomSortedArray(N);
+    currentTarget = currentArr[Math.floor(Math.random() * currentArr.length)];
+    targetLabel.textContent = currentTarget;
+    setArray(currentArr);
+    [markerR, markerM, markerL].forEach(m => m.classList.remove('visible'));
+  }
 
   function play(){
     if(playing) return;
     playing = true;
     playBtn.disabled = true;
+    changeBtn.disabled = true;
     [markerR, markerM, markerL].forEach(m => m.classList.remove('visible'));
+    bars.forEach(({ bar }) => bar.classList.remove('active'));
 
-    const arr = randomSortedArray(N);
-    const target = arr[Math.floor(Math.random() * arr.length)];
-    targetLabel.textContent = target;
-    setArray(arr);
-
-    const steps = buildSteps(arr, target);
+    const steps = buildSteps(currentArr, currentTarget);
     let i = 0;
     function step(){
       if(i >= steps.length){
         playing = false;
         playBtn.disabled = false;
+        changeBtn.disabled = false;
         return;
       }
       render(steps[i]);
@@ -219,9 +235,10 @@
     step();
   }
 
+  changeBtn.addEventListener('click', changeValues);
   playBtn.addEventListener('click', play);
 
-  setArray(randomSortedArray(N));
+  changeValues();
 })();
 </script>
 </body>
