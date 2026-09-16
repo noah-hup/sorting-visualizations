@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rank Sort Animation</title>
+<style>
+  :root{
+    --bg: #ffffff;
+    --bar: #111111;
+    --text: #111111;
+    --muted: #8a8a8a;
+    color-scheme: light;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+    padding-top: calc(24px + env(safe-area-inset-top, 0px));
+  }
+
+  .status{ font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; }
+  .status b{ color: var(--text); }
+
+  .chart{
+    position: relative;
+    height: 140px;
+  }
+  .bar-wrap{
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 36px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .bar{
+    width: 36px;
+    background: var(--bar);
+    border: 1.5px solid transparent;
+    transition: opacity 0.3s ease, height 0.5s ease, background 0.3s ease, border-color 0.3s ease;
+  }
+  .bar.empty{ background: transparent; border-color: var(--muted); border-style: dashed; }
+  .value{ font-size: 0.85rem; font-weight: 600; min-height: 1.2em; }
+  .tally{ width: 6px; height: 6px; background: transparent; transition: background 0.3s ease; }
+  .tally.counted{ background: var(--text); }
+
+  .markers{
+    position: relative;
+    height: 34px;
+  }
+  .marker{
+    position: absolute;
+    top: 0;
+    min-width: 36px;
+    text-align: center;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text);
+    transition: transform 0.4s cubic-bezier(.4,0,.2,1), top 0.3s ease, opacity 0.3s ease;
+    opacity: 0;
+  }
+  .marker.visible{ opacity: 1; }
+
+  .controls{ display: flex; gap: 18px; margin-top: 8px; }
+
+  button{
+    border: none;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  button:disabled{ opacity: 0.35; cursor: not-allowed; }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#111111; --bar:#f2f2f2; --text:#f2f2f2; --muted:#8a8a8a;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#111111; --bar:#f2f2f2; --text:#f2f2f2; --muted:#8a8a8a;
+    color-scheme: dark;
+  }
+</style>
+</head>
+<body>
+  <div class="status">rang = <b id="rangValue">–</b></div>
+
+  <div class="chart" id="chartTop"></div>
+  <div class="markers" id="markersTop">
+    <div class="marker" id="markerI">i</div>
+    <div class="marker" id="markerJ">j</div>
+  </div>
+
+  <div class="chart" id="chartBottom"></div>
+  <div class="markers" id="markersBottom">
+    <div class="marker" id="markerRang">rang</div>
+  </div>
+
+  <div class="controls">
+    <button id="change">Werte ändern</button>
+    <button id="play">Play</button>
+  </div>
+
+<script>
+(function(){
+  const N = 7;
+  const BAR_WIDTH = 36;
+  const GAP = 14;
+  const COLUMN = BAR_WIDTH + GAP;
+  const STEP_MS = 500;
+  const maxHeight = 100;
+  const ROW = 16;
+
+  const chartTop = document.getElementById('chartTop');
+  const chartBottom = document.getElementById('chartBottom');
+  const markersTopEl = document.getElementById('markersTop');
+  const markersBottomEl = document.getElementById('markersBottom');
+  const changeBtn = document.getElementById('change');
+  const playBtn = document.getElementById('play');
+  const markerI = document.getElementById('markerI');
+  const markerJ = document.getElementById('markerJ');
+  const markerRang = document.getElementById('markerRang');
+  const rangValueEl = document.getElementById('rangValue');
+
+  const totalWidth = N * BAR_WIDTH + (N - 1) * GAP;
+  [chartTop, chartBottom, markersTopEl, markersBottomEl].forEach(el => el.style.width = totalWidth + 'px');
+
+  function buildBars(container, withTally){
+    const arr = [];
+    for(let i = 0; i < N; i++){
+      const wrap = document.createElement('div');
+      wrap.className = 'bar-wrap';
+      wrap.style.transform = `translateX(${i * COLUMN}px)`;
+      let tally = null;
+      if(withTally){
+        tally = document.createElement('div');
+        tally.className = 'tally';
+        wrap.appendChild(tally);
+      }
+      const valueLabel = document.createElement('div');
+      valueLabel.className = 'value';
+      const bar = document.createElement('div');
+      bar.className = 'bar';
+      wrap.appendChild(valueLabel);
+      wrap.appendChild(bar);
+      container.appendChild(wrap);
+      arr.push({ wrap, bar, valueLabel, tally });
+    }
+    return arr;
+  }
+
+  const topBars = buildBars(chartTop, true);
+  const bottomBars = buildBars(chartBottom, false);
+
+  function resetTally(){
+    topBars.forEach(b => b.tally.classList.remove('counted'));
+  }
+
+  function markCounted(idx){
+    topBars[idx].tally.classList.add('counted');
+  }
+
+  function randomArray(n){
+    const set = new Set();
+    while(set.size < n) set.add(Math.floor(Math.random() * 50) + 1);
+    return Array.from(set);
+  }
+
+  function setTop(array){
+    const maxVal = Math.max(...array);
+    array.forEach((val, idx) => {
+      topBars[idx].valueLabel.textContent = val;
+      topBars[idx].bar.style.height = Math.max(20, (val / maxVal) * maxHeight) + 'px';
+      topBars[idx].bar.classList.remove('empty');
+    });
+  }
+
+  function resetBottom(){
+    bottomBars.forEach(b => {
+      b.valueLabel.textContent = '';
+      b.bar.style.height = '10px';
+      b.bar.classList.add('empty');
+    });
+  }
+
+  function fillSlot(slot, value, maxVal){
+    const b = bottomBars[slot];
+    b.valueLabel.textContent = value;
+    b.bar.classList.remove('empty');
+    b.bar.style.height = Math.max(20, (value / maxVal) * maxHeight) + 'px';
+  }
+
+  function applyTopFill(processedUpTo){
+    topBars.forEach((b, idx) => {
+      b.bar.style.opacity = idx < processedUpTo ? '0.35' : '1';
+    });
+  }
+
+  // i, j gleiche Position -> untereinander stapeln statt nebeneinander versetzen
+  function layoutTop(iIdx, jIdx){
+    const entries = [{ el: markerI, idx: iIdx }, { el: markerJ, idx: jIdx }];
+    const groups = {};
+    entries.forEach(e => {
+      if(e.idx === null || e.idx === undefined){ e.el.classList.remove('visible'); return; }
+      (groups[e.idx] = groups[e.idx] || []).push(e);
+    });
+    Object.values(groups).forEach(group => {
+      group.forEach((e, row) => {
+        e.el.style.transform = `translateX(${e.idx * COLUMN}px)`;
+        e.el.style.top = (row * ROW) + 'px';
+        e.el.classList.add('visible');
+      });
+    });
+  }
+
+  function setRangMarker(idx){
+    if(idx === null || idx === undefined){ markerRang.classList.remove('visible'); return; }
+    markerRang.style.transform = `translateX(${idx * COLUMN}px)`;
+    markerRang.classList.add('visible');
+  }
+
+  // idee: 1) für jedes Element zählen wie viele kleinere  2) Anzahl ist Index für sortierte Liste
+  // für i in 0..n-1:
+  //   rang = 0
+  //   für j in 0..n-1:
+  //     wenn z[j] < z[i] -> rang++
+  //     sonst wenn z[j] == z[i] und j<i -> rang++
+  //   sorted[rang] = z[i]
+  function buildOps(values){
+    const n = values.length;
+    const ops = [];
+    for(let i = 0; i < n; i++){
+      ops.push({ type: 'start', i });
+      let rang = 0;
+      for(let j = 0; j < n; j++){
+        let counted = false;
+        if(values[j] < values[i]){ rang++; counted = true; }
+        else if(values[j] === values[i] && j < i){ rang++; counted = true; }
+        ops.push({ type: 'compare', i, j, rang, counted });
+      }
+      ops.push({ type: 'place', i, rang, value: values[i] });
+    }
+    ops.push({ type: 'done' });
+    return ops;
+  }
+
+  function render(op, maxVal){
+    if(op.type === 'done'){
+      layoutTop(null, null);
+      setRangMarker(null);
+      rangValueEl.textContent = '–';
+      applyTopFill(N);
+      return;
+    }
+    if(op.type === 'start'){
+      layoutTop(op.i, null);
+      setRangMarker(null);
+      rangValueEl.textContent = '0';
+      applyTopFill(op.i);
+      resetTally();
+      return;
+    }
+    if(op.type === 'compare'){
+      layoutTop(op.i, op.j);
+      setRangMarker(op.rang);
+      rangValueEl.textContent = String(op.rang);
+      if(op.counted) markCounted(op.j);
+      return;
+    }
+    if(op.type === 'place'){
+      layoutTop(op.i, null);
+      setRangMarker(op.rang);
+      rangValueEl.textContent = String(op.rang);
+      applyTopFill(op.i + 1);
+      fillSlot(op.rang, op.value, maxVal);
+    }
+  }
+
+  let playing = false;
+  let currentArr = [];
+
+  function changeValues(){
+    if(playing) return;
+    currentArr = randomArray(N);
+    setTop(currentArr);
+    resetBottom();
+    applyTopFill(0);
+    layoutTop(null, null);
+    setRangMarker(null);
+    rangValueEl.textContent = '–';
+  }
+
+  function play(){
+    if(playing) return;
+    playing = true;
+    playBtn.disabled = true;
+    changeBtn.disabled = true;
+
+    setTop(currentArr);
+    resetBottom();
+    const maxVal = Math.max(...currentArr);
+
+    const ops = buildOps(currentArr);
+    let idx = 0;
+    function step(){
+      if(idx >= ops.length){
+        playing = false;
+        playBtn.disabled = false;
+        changeBtn.disabled = false;
+        return;
+      }
+      const op = ops[idx];
+      render(op, maxVal);
+      idx++;
+      setTimeout(step, op.type === 'place' ? STEP_MS * 2.4 : STEP_MS);
+    }
+    step();
+  }
+
+  changeBtn.addEventListener('click', changeValues);
+  playBtn.addEventListener('click', play);
+
+  changeValues();
+})();
+</script>
+</body>
+</html>
