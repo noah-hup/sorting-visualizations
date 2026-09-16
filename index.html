@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Algorithmus-Animationen</title>
+<style>
+  :root{
+    --bg:#f7f8fb; --panel:#fff; --border:#e2e5ec; --text:#1c2130; --muted:#6b7280; --accent:#4361ee;
+    color-scheme: light;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; }
+  body{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text);
+    padding: 32px 16px calc(32px + env(safe-area-inset-bottom,0px));
+    padding-top: calc(32px + env(safe-area-inset-top,0px));
+  }
+  .wrap{ max-width: 760px; margin: 0 auto; }
+  h1{ font-size: 1.5rem; margin: 0 0 6px; }
+  p.subtitle{ color: var(--muted); margin: 0 0 28px; }
+  .grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 14px; }
+  a.card{
+    display:block; text-decoration:none; color: var(--text);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px; transition: transform 0.12s ease, border-color 0.12s ease;
+  }
+  a.card:hover{ transform: translateY(-2px); border-color: var(--accent); }
+  a.card .emoji{ font-size: 1.6rem; }
+  a.card h2{ font-size: 1.05rem; margin: 8px 0 4px; }
+  a.card p{ font-size: 0.85rem; color: var(--muted); margin: 0; }
+  .card.soon{ opacity: 0.5; pointer-events: none; }
+  footer{ margin-top: 28px; font-size: 0.8rem; color: var(--muted); }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){ --bg:#14161f; --panel:#1c1f2b; --border:#2a2e3d; --text:#eef0f6; --muted:#9aa0b4; --accent:#7c8cf8; color-scheme: dark; }
+  }
+  :root[data-theme="dark"]{ --bg:#14161f; --panel:#1c1f2b; --border:#2a2e3d; --text:#eef0f6; --muted:#9aa0b4; --accent:#7c8cf8; color-scheme: dark; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📊 Sortier- &amp; Suchalgorithmen</h1>
+  <p class="subtitle">Interaktive Animationen zum Einbetten (z. B. in Notion via Embed-Block).</p>
+  <div class="grid">
+    <a class="card" href="binary-search/">
+      <div class="emoji">🔍</div>
+      <h2>Binary Search</h2>
+      <p>Schrittweise Suche in einem sortierten Array.</p>
+    </a>
+    <div class="card soon">
+      <div class="emoji">🧩</div>
+      <h2>Weitere folgen</h2>
+      <p>Bubble Sort, Merge Sort, Quick Sort, …</p>
+    </div>
+  </div>
+  <footer>Jede Unterseite hat eine eigene URL, die sich direkt per Embed-Block in Notion einbetten lässt.</footer>
+</div>
+</body>
+</html>
