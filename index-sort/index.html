@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Index Sort Animation</title>
+<style>
+  :root{
+    --bg: #ffffff;
+    --bar: #111111;
+    --text: #111111;
+    --muted: #8a8a8a;
+    --warn: #d64545;
+    color-scheme: light;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+    padding-top: calc(24px + env(safe-area-inset-top, 0px));
+  }
+
+  .legend{ display:flex; gap: 16px; font-size: 0.7rem; color: var(--muted); }
+  .legend span{ display:inline-flex; align-items:center; gap:5px; }
+  .swatch{ width: 10px; height: 10px; background: var(--bar); }
+  .swatch.unsorted{ opacity: 0.35; }
+
+  .status{ font-size: 0.85rem; color: var(--muted); }
+  .status b{ color: var(--text); }
+
+  .chart{
+    position: relative;
+    height: 200px;
+  }
+  .bar-wrap{
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 36px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    transition: transform 0.5s cubic-bezier(.4,0,.2,1);
+  }
+  .bar{
+    width: 36px;
+    background: var(--bar);
+    transition: opacity 0.3s ease, background 0.2s ease;
+  }
+  .bar.swapping{ background: var(--warn); }
+  .value{ font-size: 0.85rem; font-weight: 600; }
+  .indexLabel{ font-size: 0.65rem; font-weight: 600; color: var(--muted); }
+
+  .markers{
+    position: relative;
+    height: 16px;
+  }
+  .marker{
+    position: absolute;
+    top: 0;
+    width: 36px;
+    text-align: center;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text);
+    transition: transform 0.5s cubic-bezier(.4,0,.2,1), opacity 0.3s ease;
+    opacity: 0;
+  }
+  .marker.visible{ opacity: 1; }
+
+  .resultCaption{ font-size: 0.7rem; color: var(--muted); }
+
+  .resultRow{
+    position: relative;
+    height: 30px;
+  }
+  .resultChip{
+    position: absolute;
+    bottom: 0;
+    width: 36px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    border: 1.5px solid var(--muted);
+    color: var(--text);
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 0.4s ease, transform 0.4s cubic-bezier(.4,0,.2,1), background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  }
+  .resultChip.revealed{
+    opacity: 1;
+    transform: translateY(0);
+    background: var(--bar);
+    border-color: var(--bar);
+    color: var(--bg);
+  }
+
+  .controls{ display: flex; gap: 18px; }
+
+  button{
+    border: none;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  button:disabled{ opacity: 0.35; cursor: not-allowed; }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#111111; --bar:#f2f2f2; --text:#f2f2f2; --muted:#8a8a8a; --warn:#ff6b6b;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#111111; --bar:#f2f2f2; --text:#f2f2f2; --muted:#8a8a8a; --warn:#ff6b6b;
+    color-scheme: dark;
+  }
+</style>
+</head>
+<body>
+  <div class="legend">
+    <span><i class="swatch"></i> sortiert</span>
+    <span><i class="swatch unsorted"></i> unsortiert</span>
+  </div>
+
+  <div class="status">tausche = <b id="swapValue">–</b></div>
+
+  <div class="chart" id="chart"></div>
+
+  <div class="markers" id="markers">
+    <div class="marker" id="markerI">i</div>
+    <div class="marker" id="markerI2">i+1</div>
+  </div>
+
+  <div class="resultCaption">sortiertes Index-Array</div>
+  <div class="resultRow" id="resultRow"></div>
+
+  <div class="controls">
+    <button id="change">Werte ändern</button>
+    <button id="play">Play</button>
+  </div>
+
+<script>
+(function(){
+  const N = 7;
+  const BAR_WIDTH = 36;
+  const GAP = 14;
+  const COLUMN = BAR_WIDTH + GAP;
+  const STEP_MS = 900;
+  const maxHeight = 160;
+
+  const chart = document.getElementById('chart');
+  const markersEl = document.getElementById('markers');
+  const changeBtn = document.getElementById('change');
+  const playBtn = document.getElementById('play');
+  const markerI = document.getElementById('markerI');
+  const markerI2 = document.getElementById('markerI2');
+  const swapValueEl = document.getElementById('swapValue');
+  const resultRow = document.getElementById('resultRow');
+
+  const totalWidth = N * BAR_WIDTH + (N - 1) * GAP;
+  chart.style.width = totalWidth + 'px';
+  markersEl.style.width = totalWidth + 'px';
+  resultRow.style.width = totalWidth + 'px';
+
+  // bars: eine feste Objekt-Identität pro index-Eintrag (index[k] = k anfangs),
+  // "slot" = aktuelle Position im index-Array. Der Wert bleibt an der Identität
+  // hängen (value = z[ursprünglicher Index]) und wandert beim Tauschen mit.
+  const bars = [];
+  for(let i = 0; i < N; i++){
+    const wrap = document.createElement('div');
+    wrap.className = 'bar-wrap';
+    const valueLabel = document.createElement('div');
+    valueLabel.className = 'value';
+    const indexLabel = document.createElement('div');
+    indexLabel.className = 'indexLabel';
+    indexLabel.textContent = '[' + i + ']';
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    wrap.appendChild(valueLabel);
+    wrap.appendChild(indexLabel);
+    wrap.appendChild(bar);
+    chart.appendChild(wrap);
+    bars.push({ wrap, bar, valueLabel, value: 0, origIndex: i });
+  }
+
+  let order = bars.slice(); // order[slot] = index-Bar-Objekt an dieser Position
+
+  // resultChips: erscheinen erst am Ende, zeigen das fertige index-Array als eigene Reihe.
+  const resultChips = [];
+  for(let i = 0; i < N; i++){
+    const chip = document.createElement('div');
+    chip.className = 'resultChip';
+    chip.style.transform = `translateX(${i * COLUMN}px)`;
+    resultRow.appendChild(chip);
+    resultChips.push(chip);
+  }
+
+  function resetResultRow(){
+    resultChips.forEach(chip => {
+      chip.classList.remove('revealed');
+      chip.style.transitionDelay = '0ms';
+      chip.textContent = '';
+    });
+  }
+
+  function revealResult(){
+    order.forEach((barObj, slot) => {
+      const chip = resultChips[slot];
+      chip.textContent = barObj.origIndex;
+      chip.style.transitionDelay = (slot * 70) + 'ms';
+      chip.classList.add('revealed');
+    });
+  }
+
+  function randomArray(n){
+    const set = new Set();
+    while(set.size < n) set.add(Math.floor(Math.random() * 50) + 1);
+    return Array.from(set);
+  }
+
+  function placeSlots(){
+    order.forEach((barObj, slot) => {
+      barObj.wrap.style.transform = `translateX(${slot * COLUMN}px)`;
+    });
+  }
+
+  function setMarker(el, idx){
+    if(idx === null || idx === undefined){
+      el.classList.remove('visible');
+      return;
+    }
+    el.style.transform = `translateX(${idx * COLUMN}px)`;
+    el.classList.add('visible');
+  }
+
+  function applyFill(sortedFrom){
+    order.forEach((barObj, slot) => {
+      barObj.bar.style.opacity = slot >= sortedFrom ? '1' : '0.35';
+    });
+  }
+
+  function clearSwapMark(){
+    bars.forEach(barObj => barObj.bar.classList.remove('swapping'));
+  }
+
+  // idee: 1) index-Array [0,1,2,…] aufbauen, z bleibt unverändert
+  // 2) Bubble Sort, aber verglichen wird über z[index[i]] statt z[i]
+  // solange x < n-1 und swap:
+  //   swap = false
+  //   für i = 0 .. n-2-x:
+  //     wenn z[index[i]] > z[index[i+1]] -> tausche(index[i], index[i+1]), swap = true
+  function buildOps(values){
+    const arr = values.slice();
+    const n = arr.length;
+    const ops = [];
+    let x = 0;
+    let swapFlag = true;
+    while(x < n - 1 && swapFlag){
+      swapFlag = false;
+      for(let i = 0; i < n - 1 - x; i++){
+        let swapped = false;
+        if(arr[i] > arr[i + 1]){
+          const tmp = arr[i]; arr[i] = arr[i + 1]; arr[i + 1] = tmp;
+          swapFlag = true;
+          swapped = true;
+        }
+        ops.push({ type: 'compare', x, i, swap: swapFlag, swapped });
+      }
+      x++;
+    }
+    ops.push({ type: 'done' });
+    return ops;
+  }
+
+  function render(op){
+    clearSwapMark();
+    if(op.type === 'done'){
+      setMarker(markerI, null);
+      setMarker(markerI2, null);
+      swapValueEl.textContent = 'false';
+      applyFill(0);
+      revealResult();
+      return;
+    }
+    setMarker(markerI, op.i);
+    setMarker(markerI2, op.i + 1);
+    swapValueEl.textContent = op.swap ? 'true' : 'false';
+    applyFill(N - op.x);
+    if(op.swapped){
+      const a = order[op.i], b = order[op.i + 1];
+      a.bar.classList.add('swapping');
+      b.bar.classList.add('swapping');
+      order[op.i] = b;
+      order[op.i + 1] = a;
+      placeSlots();
+    }
+  }
+
+  function updateValues(array){
+    array.forEach((val, idx) => {
+      const barObj = bars[idx];
+      barObj.value = val;
+      barObj.valueLabel.textContent = val;
+    });
+    const maxVal = Math.max(...array);
+    bars.forEach(barObj => {
+      barObj.bar.style.height = Math.max(20, (barObj.value / maxVal) * maxHeight) + 'px';
+    });
+  }
+
+  let playing = false;
+  let currentArr = [];
+
+  function changeValues(){
+    if(playing) return;
+    currentArr = randomArray(N);
+    order = bars.slice();
+    placeSlots();
+    updateValues(currentArr);
+    applyFill(N);
+    setMarker(markerI, null);
+    setMarker(markerI2, null);
+    swapValueEl.textContent = '–';
+    resetResultRow();
+  }
+
+  function play(){
+    if(playing) return;
+    playing = true;
+    playBtn.disabled = true;
+    changeBtn.disabled = true;
+
+    order = bars.slice();
+    placeSlots();
+    updateValues(currentArr);
+    resetResultRow();
+
+    const ops = buildOps(currentArr);
+    let idx = 0;
+    function step(){
+      if(idx >= ops.length){
+        playing = false;
+        playBtn.disabled = false;
+        changeBtn.disabled = false;
+        return;
+      }
+      const op = ops[idx];
+      render(op);
+      idx++;
+      setTimeout(step, op.swapped ? STEP_MS * 1.8 : STEP_MS);
+    }
+    step();
+  }
+
+  changeBtn.addEventListener('click', changeValues);
+  playBtn.addEventListener('click', play);
+
+  changeValues();
+})();
+</script>
+</body>
+</html>
