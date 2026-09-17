@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Quick Sort Animation</title>
+<style>
+  :root{
+    --bg: #ffffff;
+    --bar: #111111;
+    --text: #111111;
+    --muted: #8a8a8a;
+    --accent: #d64545;
+    --pivot: #3a6df0;
+    color-scheme: light;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+    padding-top: calc(24px + env(safe-area-inset-top, 0px));
+  }
+
+  .status{ font-size: 0.85rem; color: var(--muted); }
+  .status b{ color: var(--text); }
+
+  .chart{
+    position: relative;
+  }
+  .chipGhost{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 28px;
+    height: 28px;
+    border: 1.5px dashed var(--muted);
+    opacity: 0.45;
+  }
+  .chip{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    background: var(--bar);
+    color: var(--bg);
+    opacity: 0;
+    transition: opacity 0.35s ease, transform 0.45s cubic-bezier(.4,0,.2,1), background 0.25s ease;
+    z-index: 1;
+  }
+  .chip.revealed{ opacity: 1; }
+  .chip.comparing{ background: var(--accent); }
+  .chip.pivot{ background: var(--pivot); }
+
+  .marker{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 28px;
+    text-align: center;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--text);
+    transition: transform 0.4s cubic-bezier(.4,0,.2,1), opacity 0.3s ease;
+    opacity: 0;
+    z-index: 2;
+  }
+  .marker.visible{ opacity: 1; }
+
+  .controls{ display: flex; gap: 18px; }
+
+  button{
+    border: none;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  button:disabled{ opacity: 0.35; cursor: not-allowed; }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#111111; --bar:#f2f2f2; --text:#f2f2f2; --muted:#8a8a8a; --accent:#ff6b6b; --pivot:#6c93ff;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#111111; --bar:#f2f2f2; --text:#f2f2f2; --muted:#8a8a8a; --accent:#ff6b6b; --pivot:#6c93ff;
+    color-scheme: dark;
+  }
+</style>
+</head>
+<body>
+  <div class="status">kleiner-gleich Pivot = <b id="pickResult">–</b></div>
+
+  <div class="chart" id="chart"></div>
+
+  <div class="controls">
+    <button id="change">Werte ändern</button>
+    <button id="play">Play</button>
+  </div>
+
+<script>
+(function(){
+  const N = 7;
+  const CHIP = 28;
+  const GAP = 10;
+  const COLUMN = CHIP + GAP;
+  const GROUP_GAP = 14;
+  const ROW_HEIGHT = 46;
+  const STEP_MS = 700;
+
+  const chart = document.getElementById('chart');
+  const changeBtn = document.getElementById('change');
+  const playBtn = document.getElementById('play');
+  const pickResultEl = document.getElementById('pickResult');
+
+  const markerPivot = document.createElement('div');
+  markerPivot.className = 'marker';
+  markerPivot.textContent = 'pivot';
+  const markerI = document.createElement('div');
+  markerI.className = 'marker';
+  markerI.textContent = 'i';
+
+  function randomArray(n){
+    const set = new Set();
+    while(set.size < n) set.add(Math.floor(Math.random() * 50) + 1);
+    // Werte kommen immer schon (aufsteigend) sortiert an - der klassische Worst-Case
+    // für Quicksort, an dem sich zeigt, ob die Pivot-Wahl damit klarkommt.
+    return Array.from(set).sort((a, b) => a - b);
+  }
+
+  // idee (nach optPartition): m = l + (r-l)/2, tausche(m,r), pivot = z[r]
+  // -> Pivot ist also der Wert, der in der Mitte der aktuellen Gruppe stand.
+  // i läuft mit: für j = l..r-1, wenn z[j] <= pivot -> i++, tausche(i,j)
+  // am Ende tausche(i+1, r) -> Pivot landet an Stelle i+1, das ist seine finale Position.
+  function buildAnimation(values){
+    const n = values.length;
+    const allIndices = Array.from({ length: n }, (_, i) => i);
+    const sortedIdx = allIndices.slice().sort((a, b) => values[a] - values[b]);
+    const finalSlot = new Array(n);
+    sortedIdx.forEach((idx, slot) => { finalSlot[idx] = slot; });
+
+    const ops = [];
+    const indicesAtDepth = {};
+    const boundarySlotsAtDepth = {};
+    let maxDepth = 0;
+
+    function registerGroup(depth, indices){
+      if(indices.length === 0) return;
+      maxDepth = Math.max(maxDepth, depth);
+      (indicesAtDepth[depth] = indicesAtDepth[depth] || []).push(...indices);
+      const startSlot = Math.min(...indices.map(i => finalSlot[i]));
+      (boundarySlotsAtDepth[depth] = boundarySlotsAtDepth[depth] || new Set()).add(startSlot);
+    }
+
+    registerGroup(0, allIndices);
+    let queue = allIndices.length > 1 ? [{ indices: allIndices, depth: 0 }] : [];
+
+    while(queue.length){
+      const { indices, depth } = queue.shift();
+      const mid = Math.floor(indices.length / 2);
+      const pivotIdx = indices[mid];
+      const rest = indices.slice(0, mid).concat(indices.slice(mid + 1));
+      ops.push({ type: 'pivotPick', depth, pivotIdx });
+
+      const less = [], ge = [];
+      for(const idx of rest){
+        const goesLess = values[idx] <= values[pivotIdx];
+        ops.push({ type: 'partitionStep', depth, pivotIdx, idx, goesLess, targetDepth: depth + 1 });
+        if(goesLess) less.push(idx); else ge.push(idx);
+      }
+
+      ops.push({ type: 'pivotResolved', depth, pivotIdx, targetDepth: depth + 1 });
+
+      registerGroup(depth + 1, [pivotIdx]);
+      registerGroup(depth + 1, less);
+      registerGroup(depth + 1, ge);
+
+      if(less.length > 1) queue.push({ indices: less, depth: depth + 1 });
+      if(ge.length > 1) queue.push({ indices: ge, depth: depth + 1 });
+    }
+
+    ops.push({ type: 'done' });
+    return { ops, finalSlot, maxDepth, indicesAtDepth, boundarySlotsAtDepth };
+  }
+
+  function xForSlot(slot, boundaries){
+    let gaps = 0;
+    for(const b of boundaries){ if(b <= slot) gaps++; }
+    return slot * COLUMN + gaps * GROUP_GAP;
+  }
+
+  let values = [];
+  let finalSlot = [];
+  let maxDepth = 0;
+  let indicesAtDepth = {};
+  let boundariesByDepth = {};
+  let chipsByDepth = {};
+  let allChips = [];
+  let createdElements = [];
+  let ghostedLevels = new Set();
+
+  function posForDepth(depth, idx){
+    const x = xForSlot(finalSlot[idx], boundariesByDepth[depth] || []);
+    return { x, y: depth * ROW_HEIGHT };
+  }
+
+  function ensureGhostsForLevel(depth){
+    if(ghostedLevels.has(depth)) return;
+    ghostedLevels.add(depth);
+    (indicesAtDepth[depth] || []).forEach(idx => {
+      const { x, y } = posForDepth(depth, idx);
+      const ghost = document.createElement('div');
+      ghost.className = 'chipGhost';
+      ghost.style.transform = `translate(${x}px, ${y}px)`;
+      chart.appendChild(ghost);
+      createdElements.push(ghost);
+    });
+  }
+
+  function buildLayout(vals){
+    values = vals;
+    const built = buildAnimation(values);
+    finalSlot = built.finalSlot;
+    maxDepth = built.maxDepth;
+    indicesAtDepth = built.indicesAtDepth;
+
+    boundariesByDepth = {};
+    for(let d = 0; d <= maxDepth; d++){
+      const set = built.boundarySlotsAtDepth[d] || new Set();
+      boundariesByDepth[d] = [...set].filter(s => s > 0).sort((a, b) => a - b);
+    }
+
+    createdElements.forEach(el => el.remove());
+    createdElements = [];
+    chipsByDepth = {};
+    allChips = [];
+    ghostedLevels = new Set();
+
+    let maxWidth = 0;
+    for(let d = 0; d <= maxDepth; d++){
+      for(let slot = 0; slot < N; slot++){
+        maxWidth = Math.max(maxWidth, xForSlot(slot, boundariesByDepth[d]) + CHIP);
+      }
+    }
+
+    chipsByDepth[0] = {};
+    (indicesAtDepth[0] || []).forEach(idx => {
+      const { x, y } = posForDepth(0, idx);
+      const chip = document.createElement('div');
+      chip.className = 'chip';
+      chip.textContent = values[idx];
+      chip.style.transform = `translate(${x}px, ${y}px)`;
+      chip.classList.add('revealed');
+      chart.appendChild(chip);
+      createdElements.push(chip);
+      chipsByDepth[0][idx] = chip;
+      allChips.push(chip);
+    });
+
+    for(let d = 1; d <= maxDepth; d++){
+      chipsByDepth[d] = {};
+      (indicesAtDepth[d] || []).forEach(idx => {
+        const { x: targetX, y: targetY } = posForDepth(d, idx);
+        const { x: prevX, y: prevY } = posForDepth(d - 1, idx);
+        const chip = document.createElement('div');
+        chip.className = 'chip';
+        chip.textContent = values[idx];
+        chip.style.transform = `translate(${prevX}px, ${prevY}px)`;
+        chip.dataset.targetX = targetX;
+        chip.dataset.targetY = targetY;
+        chart.appendChild(chip);
+        createdElements.push(chip);
+        chipsByDepth[d][idx] = chip;
+        allChips.push(chip);
+      });
+    }
+
+    chart.style.width = maxWidth + 'px';
+    chart.style.height = ((maxDepth + 2) * ROW_HEIGHT) + 'px';
+
+    chart.appendChild(markerPivot);
+    chart.appendChild(markerI);
+
+    ensureGhostsForLevel(0);
+
+    return built.ops;
+  }
+
+  function setMarker(el, depth, idx){
+    if(depth === null || depth === undefined || idx === null || idx === undefined){
+      el.classList.remove('visible');
+      return;
+    }
+    const { x, y } = posForDepth(depth, idx);
+    el.style.transform = `translate(${x}px, ${y - 14}px)`;
+    el.classList.add('visible');
+  }
+
+  function revealChip(depth, idx){
+    ensureGhostsForLevel(depth);
+    const chip = chipsByDepth[depth][idx];
+    chip.style.transform = `translate(${chip.dataset.targetX}px, ${chip.dataset.targetY}px)`;
+    chip.classList.add('revealed');
+  }
+
+  function revealFinalRow(){
+    const depth = maxDepth + 1;
+    for(let idx = 0; idx < N; idx++){
+      const sourceDepth = maxSourceDepthOf(idx);
+      const { x: prevX, y: prevY } = posForDepth(sourceDepth, idx);
+      const x = finalSlot[idx] * COLUMN;
+      const y = depth * ROW_HEIGHT;
+      const chip = document.createElement('div');
+      chip.className = 'chip';
+      chip.textContent = values[idx];
+      chip.style.transform = `translate(${prevX}px, ${prevY}px)`;
+      chip.style.transitionDelay = (finalSlot[idx] * 45) + 'ms';
+      chart.appendChild(chip);
+      createdElements.push(chip);
+      requestAnimationFrame(() => {
+        chip.style.transform = `translate(${x}px, ${y}px)`;
+        chip.classList.add('revealed');
+      });
+    }
+  }
+
+  function maxSourceDepthOf(idx){
+    for(let d = maxDepth; d >= 0; d--){
+      if((indicesAtDepth[d] || []).includes(idx)) return d;
+    }
+    return 0;
+  }
+
+  function clearCompareMark(){
+    allChips.forEach(c => c.classList.remove('comparing'));
+  }
+
+  function clearPivotMark(){
+    if(activePivotChip) activePivotChip.classList.remove('pivot');
+    activePivotChip = null;
+  }
+
+  let activePivotChip = null;
+
+  function render(op){
+    if(op.type === 'pivotPick'){
+      clearCompareMark();
+      clearPivotMark();
+      activePivotChip = chipsByDepth[op.depth][op.pivotIdx];
+      activePivotChip.classList.add('pivot');
+      setMarker(markerPivot, op.depth, op.pivotIdx);
+      setMarker(markerI, null, null);
+      pickResultEl.textContent = '–';
+      return;
+    }
+    if(op.type === 'partitionStep'){
+      clearCompareMark();
+      const candidateChip = chipsByDepth[op.depth][op.idx];
+      candidateChip.classList.add('comparing');
+      setMarker(markerI, op.depth, op.idx);
+      pickResultEl.textContent = op.goesLess ? 'true' : 'false';
+      revealChip(op.targetDepth, op.idx);
+      return;
+    }
+    if(op.type === 'pivotResolved'){
+      clearCompareMark();
+      clearPivotMark();
+      setMarker(markerPivot, null, null);
+      setMarker(markerI, null, null);
+      pickResultEl.textContent = '–';
+      revealChip(op.targetDepth, op.pivotIdx);
+      return;
+    }
+    if(op.type === 'done'){
+      clearCompareMark();
+      clearPivotMark();
+      setMarker(markerPivot, null, null);
+      setMarker(markerI, null, null);
+      pickResultEl.textContent = '–';
+      revealFinalRow();
+    }
+  }
+
+  let playing = false;
+  let currentOps = [];
+
+  function changeValues(){
+    if(playing) return;
+    currentOps = buildLayout(randomArray(N));
+    activePivotChip = null;
+    setMarker(markerPivot, null, null);
+    setMarker(markerI, null, null);
+    pickResultEl.textContent = '–';
+  }
+
+  function play(){
+    if(playing) return;
+    playing = true;
+    playBtn.disabled = true;
+    changeBtn.disabled = true;
+
+    currentOps = buildLayout(values);
+
+    let idx = 0;
+    function step(){
+      if(idx >= currentOps.length){
+        playing = false;
+        playBtn.disabled = false;
+        changeBtn.disabled = false;
+        return;
+      }
+      const op = currentOps[idx];
+      render(op);
+      idx++;
+      const delay = (op.type === 'pivotPick' || op.type === 'pivotResolved') ? STEP_MS + 350 : STEP_MS;
+      setTimeout(step, delay);
+    }
+    step();
+  }
+
+  changeBtn.addEventListener('click', changeValues);
+  playBtn.addEventListener('click', play);
+
+  changeValues();
+})();
+</script>
+</body>
+</html>
