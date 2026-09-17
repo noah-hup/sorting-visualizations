@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Radix Sort Animation</title>
+<style>
+  :root{
+    --bg: #ffffff;
+    --bar: #111111;
+    --text: #111111;
+    --muted: #8a8a8a;
+    --accent: #d64545;
+    color-scheme: light;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+    padding-top: calc(24px + env(safe-area-inset-top, 0px));
+  }
+
+  .rowlabel{ font-size: 0.7rem; color: var(--muted); text-align: left; }
+
+  .countRowLabel{ font-size: 0.9rem; font-weight: 700; color: var(--text); text-align: left; transition: color 0.3s ease; }
+  .countRowLabel.adding{ color: var(--accent); }
+
+  .auxGroup{ display:flex; flex-direction:column; align-items:center; gap:10px; transition: opacity 0.5s ease; }
+  .auxGroup.faded{ opacity: 0.25; }
+
+  .chart{
+    position: relative;
+    height: 150px;
+  }
+  .chart.countChart{ height: 56px; }
+
+  .bar-wrap{
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .bar{
+    width: 40px;
+    background: var(--bar);
+    transition: opacity 0.3s ease, height 0.4s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .bar.empty{ background: transparent; border: 1.5px dashed var(--muted); }
+  .value{ font-size: 0.8rem; font-weight: 600; letter-spacing: 0.5px; min-height: 1.1em; }
+  .digit{ transition: color 0.2s ease, font-size 0.2s ease; }
+  .digit.active{ color: var(--accent); font-size: 1.3em; font-weight: 800; }
+
+  .chip-wrap{
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .countChip{
+    width: 30px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    border: 1.5px dashed var(--muted);
+    color: var(--muted);
+    transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+  }
+  .countChip.filled{
+    background: var(--bar);
+    border: 1.5px solid var(--bar);
+    border-style: solid;
+    color: var(--bg);
+  }
+  #chartCount.adding .countChip.filled{
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .countIndexLabel{ font-size: 0.6rem; color: var(--muted); }
+
+  .markers{
+    position: relative;
+    height: 16px;
+  }
+  .marker{
+    position: absolute;
+    top: 0;
+    width: 40px;
+    text-align: center;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text);
+    transition: transform 0.4s cubic-bezier(.4,0,.2,1), opacity 0.3s ease;
+    opacity: 0;
+  }
+  .marker.visible{ opacity: 1; }
+  .markers.countMarkers .marker{ width: 30px; }
+
+  .controls{ display: flex; gap: 18px; }
+
+  button{
+    border: none;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  button:disabled{ opacity: 0.35; cursor: not-allowed; }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#111111; --bar:#f2f2f2; --text:#f2f2f2; --muted:#8a8a8a; --accent:#ff6b6b;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#111111; --bar:#f2f2f2; --text:#f2f2f2; --muted:#8a8a8a; --accent:#ff6b6b;
+    color-scheme: dark;
+  }
+</style>
+</head>
+<body>
+  <div class="rowlabel">z</div>
+  <div class="chart" id="chartZ"></div>
+  <div class="markers" id="markersZ">
+    <div class="marker" id="markerI">i</div>
+  </div>
+
+  <div class="auxGroup" id="auxCount">
+    <div>
+      <div class="countRowLabel" id="countRowLabel">count</div>
+      <div class="chart countChart" id="chartCount"></div>
+      <div class="markers countMarkers" id="markersCount">
+        <div class="marker" id="markerD">d</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="auxGroup" id="auxOut">
+    <div>
+      <div class="rowlabel">out</div>
+      <div class="chart" id="chartOut"></div>
+      <div class="markers" id="markersOut">
+        <div class="marker" id="markerPos">pos</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="change">Werte ändern</button>
+    <button id="play">Play</button>
+  </div>
+
+<script>
+(function(){
+  const N = 6;
+  const BAR_WIDTH = 40, GAP = 14, COLUMN = BAR_WIDTH + GAP;
+  const CHIP_WIDTH = 30, CHIP_GAP = 12, CHIP_COLUMN = CHIP_WIDTH + CHIP_GAP;
+  const STEP_MS = 550;
+  const maxHeight = 120;
+
+  const chartZ = document.getElementById('chartZ');
+  const chartCount = document.getElementById('chartCount');
+  const chartOut = document.getElementById('chartOut');
+  const markersZ = document.getElementById('markersZ');
+  const markersCount = document.getElementById('markersCount');
+  const markersOut = document.getElementById('markersOut');
+  const auxCount = document.getElementById('auxCount');
+  const auxOut = document.getElementById('auxOut');
+  const changeBtn = document.getElementById('change');
+  const playBtn = document.getElementById('play');
+  const markerI = document.getElementById('markerI');
+  const markerD = document.getElementById('markerD');
+  const markerPos = document.getElementById('markerPos');
+  const countRowLabel = document.getElementById('countRowLabel');
+
+  const mainWidth = N * BAR_WIDTH + (N - 1) * GAP;
+  const countWidth = 10 * CHIP_WIDTH + 9 * CHIP_GAP;
+  [chartZ, markersZ, chartOut, markersOut].forEach(el => el.style.width = mainWidth + 'px');
+  [chartCount, markersCount].forEach(el => el.style.width = countWidth + 'px');
+
+  function buildMainRow(container){
+    const arr = [];
+    for(let i = 0; i < N; i++){
+      const wrap = document.createElement('div');
+      wrap.className = 'bar-wrap';
+      wrap.style.transform = `translateX(${i * COLUMN}px)`;
+      const valueLabel = document.createElement('div');
+      valueLabel.className = 'value';
+      const digitSpans = [0, 1, 2].map(() => {
+        const s = document.createElement('span');
+        s.className = 'digit';
+        valueLabel.appendChild(s);
+        return s;
+      });
+      const bar = document.createElement('div');
+      bar.className = 'bar';
+      wrap.appendChild(valueLabel);
+      wrap.appendChild(bar);
+      container.appendChild(wrap);
+      arr.push({ wrap, bar, valueLabel, digitSpans });
+    }
+    return arr;
+  }
+
+  const zBars = buildMainRow(chartZ);
+  const outBars = buildMainRow(chartOut);
+
+  const countBars = [];
+  for(let d = 0; d < 10; d++){
+    const wrap = document.createElement('div');
+    wrap.className = 'chip-wrap';
+    wrap.style.transform = `translateX(${d * CHIP_COLUMN}px)`;
+    const chip = document.createElement('div');
+    chip.className = 'countChip';
+    const idxLabel = document.createElement('div');
+    idxLabel.className = 'countIndexLabel';
+    idxLabel.textContent = d;
+    wrap.appendChild(chip);
+    wrap.appendChild(idxLabel);
+    chartCount.appendChild(wrap);
+    countBars.push({ wrap, chip });
+  }
+
+  function randomArray(n){
+    const set = new Set();
+    while(set.size < n) set.add(Math.floor(Math.random() * 1000));
+    return Array.from(set);
+  }
+
+  function setBarValue(barObj, value){
+    if(value === null || value === undefined){
+      barObj.digitSpans.forEach(s => s.textContent = '');
+      barObj.bar.style.height = '8px';
+      barObj.bar.classList.add('empty');
+      return;
+    }
+    const padded = String(value).padStart(3, '0');
+    barObj.digitSpans.forEach((s, i) => { s.textContent = padded[i]; });
+    barObj.bar.style.height = Math.max(14, (value / 999) * maxHeight) + 'px';
+    barObj.bar.classList.remove('empty');
+  }
+
+  function setActiveDigitPos(rowBars, charIdx){
+    rowBars.forEach(barObj => {
+      barObj.digitSpans.forEach((s, i) => s.classList.toggle('active', i === charIdx));
+    });
+  }
+
+  function placeToCharIndex(place){
+    return place === 'Einer' ? 2 : place === 'Zehner' ? 1 : 0;
+  }
+
+  function setCount(values){
+    countBars.forEach((c, d) => {
+      const v = values[d];
+      c.chip.textContent = v;
+      c.chip.classList.toggle('filled', v > 0);
+    });
+  }
+
+  function resetCount(){
+    setCount(new Array(10).fill(0));
+  }
+
+  function resetOut(){
+    outBars.forEach(b => setBarValue(b, null));
+  }
+
+  function setMarker(el, idx, column){
+    if(idx === null || idx === undefined){
+      el.classList.remove('visible');
+      return;
+    }
+    el.style.transform = `translateX(${idx * column}px)`;
+    el.classList.add('visible');
+  }
+
+  function clearMarkers(){
+    setMarker(markerI, null);
+    setMarker(markerD, null);
+    setMarker(markerPos, null);
+  }
+
+  function fadeAux(faded){
+    auxCount.classList.toggle('faded', faded);
+    auxOut.classList.toggle('faded', faded);
+  }
+
+  function setCountPhase(adding){
+    chartCount.classList.toggle('adding', adding);
+    countRowLabel.classList.toggle('adding', adding);
+    countRowLabel.textContent = adding ? 'add' : 'count';
+  }
+
+  // idee: 1) Aufruf mit Stellen-Ziffern der Werte (erst Einer, dann Zehner, …)
+  // 2) count-Array (Größe 10) zählt Ziffernanzahl pro Stelle
+  // 3) count aufsummieren (Präfixsumme) -> ergibt End-Position je Ziffer
+  // 4) rückwärts durch z, in out an pos=count[ziffer]-1 einsortieren, count[ziffer]--
+  function buildOps(values){
+    const n = values.length;
+    let z = values.slice();
+    const ops = [];
+    const max = 999;
+    for(let s = 1; Math.floor(max / s) > 0; s *= 10){
+      const place = s === 1 ? 'Einer' : s === 10 ? 'Zehner' : 'Hunderter';
+      ops.push({ type: 'passStart', s, place, z: z.slice() });
+
+      const count = new Array(10).fill(0);
+      for(let i = 0; i < n; i++){
+        const digit = Math.floor(z[i] / s) % 10;
+        count[digit]++;
+        ops.push({ type: 'count', s, place, i, digit, count: count.slice() });
+      }
+
+      for(let k = 1; k < 10; k++){
+        count[k] = count[k] + count[k - 1];
+        ops.push({ type: 'prefix', s, place, k, count: count.slice() });
+      }
+
+      const out = new Array(n).fill(null);
+      for(let i = n - 1; i >= 0; i--){
+        const digit = Math.floor(z[i] / s) % 10;
+        const pos = count[digit] - 1;
+        out[pos] = z[i];
+        count[digit]--;
+        ops.push({ type: 'place', s, place, i, digit, pos, value: z[i], count: count.slice() });
+      }
+
+      z = out.slice();
+      ops.push({ type: 'copyBack', s, place, z: z.slice() });
+    }
+    ops.push({ type: 'done', z: z.slice() });
+    return ops;
+  }
+
+  function render(op){
+    if(op.type === 'passStart'){
+      clearMarkers();
+      setCountPhase(false);
+      op.z.forEach((v, i) => setBarValue(zBars[i], v));
+      setActiveDigitPos(zBars, placeToCharIndex(op.place));
+      resetCount();
+      resetOut();
+      return;
+    }
+    if(op.type === 'count'){
+      setMarker(markerI, op.i, COLUMN);
+      setMarker(markerD, op.digit, CHIP_COLUMN);
+      setMarker(markerPos, null);
+      setCount(op.count);
+      return;
+    }
+    if(op.type === 'prefix'){
+      setMarker(markerI, null);
+      setMarker(markerD, op.k, CHIP_COLUMN);
+      setMarker(markerPos, null);
+      setCountPhase(true);
+      setCount(op.count);
+      return;
+    }
+    if(op.type === 'place'){
+      setMarker(markerI, op.i, COLUMN);
+      setMarker(markerD, op.digit, CHIP_COLUMN);
+      setMarker(markerPos, op.pos, COLUMN);
+      setCount(op.count);
+      setBarValue(outBars[op.pos], op.value);
+      return;
+    }
+    if(op.type === 'copyBack'){
+      clearMarkers();
+      op.z.forEach((v, i) => setBarValue(zBars[i], v));
+      return;
+    }
+    if(op.type === 'done'){
+      clearMarkers();
+      op.z.forEach((v, i) => setBarValue(zBars[i], v));
+      setActiveDigitPos(zBars, -1);
+      fadeAux(true);
+    }
+  }
+
+  let playing = false;
+  let currentArr = [];
+
+  function delayFor(op){
+    switch(op.type){
+      case 'passStart': return STEP_MS * 1.8;
+      case 'copyBack': return STEP_MS * 1.6;
+      case 'place': return STEP_MS * 1.1;
+      default: return STEP_MS;
+    }
+  }
+
+  function changeValues(){
+    if(playing) return;
+    currentArr = randomArray(N);
+    fadeAux(false);
+    setCountPhase(false);
+    currentArr.forEach((v, i) => setBarValue(zBars[i], v));
+    setActiveDigitPos(zBars, -1);
+    resetCount();
+    resetOut();
+    clearMarkers();
+  }
+
+  function play(){
+    if(playing) return;
+    playing = true;
+    playBtn.disabled = true;
+    changeBtn.disabled = true;
+    fadeAux(false);
+
+    const ops = buildOps(currentArr);
+    let idx = 0;
+    function step(){
+      if(idx >= ops.length){
+        playing = false;
+        playBtn.disabled = false;
+        changeBtn.disabled = false;
+        return;
+      }
+      const op = ops[idx];
+      render(op);
+      idx++;
+      setTimeout(step, delayFor(op));
+    }
+    step();
+  }
+
+  changeBtn.addEventListener('click', changeValues);
+  playBtn.addEventListener('click', play);
+
+  changeValues();
+})();
+</script>
+</body>
+</html>
