@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Insertion Sort Animation</title>
+<style>
+  :root{
+    --bg: #ffffff;
+    --bar: #111111;
+    --text: #111111;
+    --muted: #8a8a8a;
+    --accent: #d64545;
+    color-scheme: light;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+    padding-top: calc(24px + env(safe-area-inset-top, 0px));
+  }
+
+  .legend{ display:flex; gap: 16px; font-size: 0.7rem; color: var(--muted); }
+  .legend span{ display:inline-flex; align-items:center; gap:5px; }
+  .swatch{ width: 10px; height: 10px; background: var(--bar); }
+  .swatch.unsorted{ opacity: 0.35; }
+
+  .status{ font-size: 0.85rem; color: var(--muted); }
+  .status b{ color: var(--text); }
+
+  .chart{
+    position: relative;
+    height: 200px;
+    margin-bottom: 24px;
+  }
+  .slotGhost{
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 36px;
+    height: 0;
+    border-bottom: 1.5px dashed var(--muted);
+    opacity: 0.6;
+  }
+  .bar-wrap{
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 36px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    transition: transform 0.5s cubic-bezier(.4,0,.2,1);
+  }
+  .bar{
+    width: 36px;
+    background: var(--bar);
+    transition: opacity 0.3s ease, background 0.25s ease;
+  }
+  .bar-wrap.comparing .bar{ background: var(--accent); }
+  .value{ font-size: 0.85rem; font-weight: 600; transition: color 0.25s ease; }
+  .bar-wrap.comparing .value{ color: var(--accent); }
+
+  .markers{
+    position: relative;
+    height: 16px;
+  }
+  .marker{
+    position: absolute;
+    top: 0;
+    min-width: 36px;
+    text-align: center;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text);
+    transition: transform 0.5s cubic-bezier(.4,0,.2,1), opacity 0.3s ease;
+    opacity: 0;
+  }
+  .marker.visible{ opacity: 1; }
+
+  .controls{ display: flex; gap: 18px; }
+
+  button{
+    border: none;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  button:disabled{ opacity: 0.35; cursor: not-allowed; }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#111111; --bar:#f2f2f2; --text:#f2f2f2; --muted:#8a8a8a; --accent:#ff6b6b;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#111111; --bar:#f2f2f2; --text:#f2f2f2; --muted:#8a8a8a; --accent:#ff6b6b;
+    color-scheme: dark;
+  }
+</style>
+</head>
+<body>
+  <div class="legend">
+    <span><i class="swatch"></i> sortiert</span>
+    <span><i class="swatch unsorted"></i> unsortiert</span>
+  </div>
+
+  <div class="status">tauschen = <b id="swapValue">–</b></div>
+
+  <div class="chart" id="chart"></div>
+
+  <div class="markers" id="markers">
+    <div class="marker" id="markerI">i</div>
+    <div class="marker" id="markerPointer">pointer</div>
+  </div>
+
+  <div class="controls">
+    <button id="change">Werte ändern</button>
+    <button id="play">Play</button>
+  </div>
+
+<script>
+(function(){
+  const N = 7;
+  const BAR_WIDTH = 36;
+  const GAP = 14;
+  const COLUMN = BAR_WIDTH + GAP;
+  const STEP_MS = 900;
+  const maxHeight = 160;
+  const DIP = 30;
+
+  const chart = document.getElementById('chart');
+  const markersEl = document.getElementById('markers');
+  const changeBtn = document.getElementById('change');
+  const playBtn = document.getElementById('play');
+  const markerI = document.getElementById('markerI');
+  const markerPointer = document.getElementById('markerPointer');
+  const swapValueEl = document.getElementById('swapValue');
+
+  const totalWidth = N * BAR_WIDTH + (N - 1) * GAP;
+  chart.style.width = totalWidth + 'px';
+  markersEl.style.width = totalWidth + 'px';
+
+  // gestrichelte Grundlinie je Slot - rein dekorativ, markiert die Array-Positionen.
+  for(let i = 0; i < N; i++){
+    const ghost = document.createElement('div');
+    ghost.className = 'slotGhost';
+    ghost.style.transform = `translateX(${i * COLUMN}px)`;
+    chart.appendChild(ghost);
+  }
+
+  // bars: eine feste Objekt-Identität pro Wert, "slot" = aktuelle Position im Array.
+  const bars = [];
+  for(let i = 0; i < N; i++){
+    const wrap = document.createElement('div');
+    wrap.className = 'bar-wrap';
+    const valueLabel = document.createElement('div');
+    valueLabel.className = 'value';
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    wrap.appendChild(valueLabel);
+    wrap.appendChild(bar);
+    chart.appendChild(wrap);
+    bars.push({ wrap, bar, valueLabel, value: 0 });
+  }
+
+  let order = bars.slice(); // order[slot] = bar-Objekt an dieser Position
+
+  function randomArray(n){
+    const set = new Set();
+    while(set.size < n) set.add(Math.floor(Math.random() * 50) + 1);
+    return Array.from(set);
+  }
+
+  function placeSlots(){
+    order.forEach((barObj, slot) => {
+      barObj.wrap.style.transform = `translateX(${slot * COLUMN}px)`;
+    });
+  }
+
+  function applyFill(sortedUpTo){
+    order.forEach((barObj, slot) => {
+      barObj.bar.style.opacity = slot < sortedUpTo ? '1' : '0.35';
+    });
+  }
+
+  function clearCompareMark(){
+    bars.forEach(b => b.wrap.classList.remove('comparing'));
+  }
+
+  function setMarker(el, idx){
+    if(idx === null || idx === undefined || idx < 0){
+      el.classList.remove('visible');
+      return;
+    }
+    el.style.transform = `translateX(${idx * COLUMN}px)`;
+    el.classList.add('visible');
+  }
+
+  function updateValues(array){
+    array.forEach((val, idx) => {
+      const barObj = bars[idx];
+      barObj.value = val;
+      barObj.valueLabel.textContent = val;
+    });
+    const maxVal = Math.max(...array);
+    bars.forEach(barObj => {
+      barObj.bar.style.height = Math.max(20, (barObj.value / maxVal) * maxHeight) + 'px';
+    });
+  }
+
+  // idee: 1) Array ab zweiter Zahl durchlaufen 2) jede Zahl so lange mit ihrem linken
+  // Nachbarn tauschen, bis der nicht mehr größer ist -> sie wandert so in den sortierten Bereich
+  // für i = 1 .. n-1:
+  //   pos = i
+  //   solange pos>0 und z[pos-1] > z[pos]: tauschen, pos--
+  function buildOps(values){
+    const arr = values.slice();
+    const n = arr.length;
+    const ops = [];
+    for(let i = 1; i < n; i++){
+      let pos = i;
+      while(pos > 0){
+        let swapped = false;
+        if(arr[pos - 1] > arr[pos]){
+          const tmp = arr[pos - 1]; arr[pos - 1] = arr[pos]; arr[pos] = tmp;
+          swapped = true;
+        }
+        const roundEnd = !swapped || (pos - 1 === 0);
+        ops.push({ type: 'compare', i, a: pos - 1, b: pos, swapped, sortedUpTo: i, roundEnd });
+        if(!swapped) break;
+        pos--;
+      }
+    }
+    ops.push({ type: 'done' });
+    return ops;
+  }
+
+  function render(op){
+    clearCompareMark();
+    if(op.type === 'done'){
+      setMarker(markerI, null);
+      setMarker(markerPointer, null);
+      swapValueEl.textContent = 'false';
+      applyFill(N);
+      return;
+    }
+    const valueBar = order[op.b]; // die "aktuelle" Zahl, die diese Runde einsortiert wird
+    valueBar.wrap.classList.add('comparing');
+    setMarker(markerI, op.i);
+    setMarker(markerPointer, op.a);
+    swapValueEl.textContent = op.swapped ? 'true' : 'false';
+    applyFill(op.sortedUpTo);
+    valueBar.bar.style.opacity = '1'; // markierter Balken bleibt immer voll sichtbar, nie gedimmt
+
+    if(op.swapped){
+      const neighbor = order[op.a];
+      // Nachbar rutscht ganz normal an die freiwerdende Stelle.
+      neighbor.wrap.style.transform = `translateX(${op.b * COLUMN}px) translateY(0px)`;
+      // Der aktuelle Wert bleibt unter dem Array und wandert dort nur seitlich weiter,
+      // solange noch nicht klar ist, ob das schon die richtige Stelle ist.
+      valueBar.wrap.style.transform = `translateX(${op.a * COLUMN}px) translateY(${DIP}px)`;
+      order[op.a] = valueBar;
+      order[op.b] = neighbor;
+    }
+
+    // Runde zu Ende -> jetzt erst wieder einsetzen, egal ob der letzte Schritt
+    // selbst noch getauscht hat oder nur festgestellt hat "das ist die Stelle".
+    if(op.roundEnd){
+      const finalCol = op.swapped ? op.a : op.b;
+      const rise = () => {
+        valueBar.wrap.style.transform = `translateX(${finalCol * COLUMN}px) translateY(0px)`;
+      };
+      if(op.swapped) setTimeout(rise, 320);
+      else rise();
+    }
+  }
+
+  let playing = false;
+  let currentArr = [];
+
+  function changeValues(){
+    if(playing) return;
+    currentArr = randomArray(N);
+    order = bars.slice();
+    placeSlots();
+    updateValues(currentArr);
+    applyFill(1);
+    clearCompareMark();
+    setMarker(markerI, null);
+    setMarker(markerPointer, null);
+    swapValueEl.textContent = '–';
+  }
+
+  function play(){
+    if(playing) return;
+    playing = true;
+    playBtn.disabled = true;
+    changeBtn.disabled = true;
+
+    order = bars.slice();
+    placeSlots();
+    updateValues(currentArr);
+    applyFill(1);
+
+    const ops = buildOps(currentArr);
+    let idx = 0;
+    function step(){
+      if(idx >= ops.length){
+        playing = false;
+        playBtn.disabled = false;
+        changeBtn.disabled = false;
+        return;
+      }
+      const op = ops[idx];
+      render(op);
+      idx++;
+      const delay = op.roundEnd ? STEP_MS + 400 : STEP_MS;
+      setTimeout(step, delay);
+    }
+    step();
+  }
+
+  changeBtn.addEventListener('click', changeValues);
+  playBtn.addEventListener('click', play);
+
+  changeValues();
+})();
+</script>
+</body>
+</html>
