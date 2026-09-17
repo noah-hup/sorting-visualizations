@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Merge Sort Animation</title>
+<style>
+  :root{
+    --bg: #ffffff;
+    --bar: #111111;
+    --text: #111111;
+    --muted: #8a8a8a;
+    --accent: #d64545;
+    color-scheme: light;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+    padding-top: calc(24px + env(safe-area-inset-top, 0px));
+  }
+
+  .status{ font-size: 0.85rem; color: var(--muted); }
+  .status b{ color: var(--text); }
+
+  .chart{
+    position: relative;
+  }
+  .chipGhost{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 28px;
+    height: 28px;
+    border: 1.5px dashed var(--muted);
+    opacity: 0.45;
+  }
+  .chip{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    background: var(--bar);
+    color: var(--bg);
+    opacity: 0;
+    transition: opacity 0.35s ease, transform 0.45s cubic-bezier(.4,0,.2,1), background 0.25s ease;
+    z-index: 1;
+  }
+  .chip.revealed{ opacity: 1; }
+  .chip.comparing{ background: var(--accent); }
+
+  .cutLine{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 2px;
+    height: 28px;
+    background: var(--text);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 1;
+  }
+  .cutLine.visible{ opacity: 1; }
+
+  .marker{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 28px;
+    text-align: center;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--text);
+    transition: transform 0.4s cubic-bezier(.4,0,.2,1), opacity 0.3s ease;
+    opacity: 0;
+    z-index: 2;
+  }
+  .marker.visible{ opacity: 1; }
+
+  .controls{ display: flex; gap: 18px; }
+
+  button{
+    border: none;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  button:disabled{ opacity: 0.35; cursor: not-allowed; }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#111111; --bar:#f2f2f2; --text:#f2f2f2; --muted:#8a8a8a; --accent:#ff6b6b;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#111111; --bar:#f2f2f2; --text:#f2f2f2; --muted:#8a8a8a; --accent:#ff6b6b;
+    color-scheme: dark;
+  }
+</style>
+</head>
+<body>
+  <div class="status">wähle = <b id="pickSide">–</b></div>
+
+  <div class="chart" id="chart"></div>
+
+  <div class="controls">
+    <button id="change">Werte ändern</button>
+    <button id="play">Play</button>
+  </div>
+
+<script>
+(function(){
+  const N = 7;
+  const CHIP = 28;
+  const GAP = 10;
+  const COLUMN = CHIP + GAP;
+  const GROUP_GAP = 14;
+  const ROW_HEIGHT = 46;
+  const STEP_MS = 800;
+
+  const chart = document.getElementById('chart');
+  const changeBtn = document.getElementById('change');
+  const playBtn = document.getElementById('play');
+  const pickSideEl = document.getElementById('pickSide');
+
+  const markerL = document.createElement('div');
+  markerL.className = 'marker';
+  markerL.textContent = 'L';
+  const markerR = document.createElement('div');
+  markerR.className = 'marker';
+  markerR.textContent = 'R';
+
+  function randomArray(n){
+    const set = new Set();
+    while(set.size < n) set.add(Math.floor(Math.random() * 50) + 1);
+    return Array.from(set);
+  }
+
+  // idee: 1) Array in Teilbereiche splitten, bis jeder Bereich n=1
+  // 2) Teilbereiche paarweise sortiert zusammenfügen, bis nur noch 1 Bereich übrig ist
+  function buildAnimation(values){
+    const n = values.length;
+    const levels = [];
+    const ops = [];
+
+    levels.push({ groups: [ Array.from({ length: n }, (_, i) => i) ] });
+    while(levels[levels.length - 1].groups.some(g => g.length > 1)){
+      const prevGroups = levels[levels.length - 1].groups;
+      const nextGroups = [];
+      const cuts = []; // globale Slot-Indizes im Quell-Level, an denen geschnitten wird
+      let cursor = 0;
+      prevGroups.forEach(g => {
+        if(g.length <= 1){ nextGroups.push(g.slice()); cursor += g.length; return; }
+        const mid = Math.ceil(g.length / 2);
+        nextGroups.push(g.slice(0, mid), g.slice(mid));
+        cuts.push(cursor + mid);
+        cursor += g.length;
+      });
+      const sourceLevel = levels.length - 1;
+      levels.push({ groups: nextGroups });
+      ops.push({ type: 'split', level: levels.length - 1, sourceLevel, cuts });
+    }
+
+    while(levels[levels.length - 1].groups.length > 1){
+      const sourceLevel = levels.length - 1;
+      const sourceGroups = levels[sourceLevel].groups;
+      const nextGroups = [];
+      const targetLevel = sourceLevel + 1;
+
+      for(let k = 0; k < sourceGroups.length; k += 2){
+        if(k + 1 >= sourceGroups.length){
+          sourceGroups[k].forEach(idx => ops.push({ type: 'passthrough', targetLevel, picked: idx }));
+          nextGroups.push(sourceGroups[k].slice());
+          continue;
+        }
+        const left = sourceGroups[k];
+        const right = sourceGroups[k + 1];
+        const merged = [];
+        let li = 0, ri = 0;
+        while(li < left.length && ri < right.length){
+          const leftIdx = left[li], rightIdx = right[ri];
+          const takeLeft = values[leftIdx] <= values[rightIdx];
+          const picked = takeLeft ? leftIdx : rightIdx;
+          ops.push({ type: 'mergeStep', sourceLevel, targetLevel, leftIdx, rightIdx, picked, takeLeft });
+          merged.push(picked);
+          if(takeLeft) li++; else ri++;
+        }
+        while(li < left.length){
+          const picked = left[li++];
+          ops.push({ type: 'mergeStep', sourceLevel, targetLevel, leftIdx: picked, rightIdx: null, picked, takeLeft: true });
+          merged.push(picked);
+        }
+        while(ri < right.length){
+          const picked = right[ri++];
+          ops.push({ type: 'mergeStep', sourceLevel, targetLevel, leftIdx: null, rightIdx: picked, picked, takeLeft: false });
+          merged.push(picked);
+        }
+        nextGroups.push(merged);
+      }
+      levels.push({ groups: nextGroups });
+    }
+
+    ops.push({ type: 'done' });
+    return { levels, ops };
+  }
+
+  function flattenLevel(level){
+    const order = [];
+    const boundaries = [];
+    level.groups.forEach(g => {
+      if(order.length > 0) boundaries.push(order.length);
+      g.forEach(idx => order.push(idx));
+    });
+    return { order, boundaries };
+  }
+
+  function xForSlot(slot, boundaries){
+    let gaps = 0;
+    for(const b of boundaries){ if(b <= slot) gaps++; }
+    return slot * COLUMN + gaps * GROUP_GAP;
+  }
+
+  let values = [];
+  let levels = [];
+  let flatCache = [];
+  let chipsByLevelAndIdx = [];
+  let allChips = [];
+  let createdElements = [];
+  let ghostedLevels = new Set();
+  let cutLineEls = [];
+
+  function posFor(level, idx){
+    const slot = flatCache[level].slotOf[idx];
+    const x = xForSlot(slot, flatCache[level].boundaries);
+    return { x, y: level * ROW_HEIGHT };
+  }
+
+  function buildLayout(vals){
+    values = vals;
+    const built = buildAnimation(values);
+    levels = built.levels;
+
+    flatCache = levels.map(lv => {
+      const { order, boundaries } = flattenLevel(lv);
+      const slotOf = new Array(N);
+      order.forEach((idx, slot) => { slotOf[idx] = slot; });
+      return { order, boundaries, slotOf };
+    });
+
+    createdElements.forEach(el => el.remove());
+    createdElements = [];
+    chipsByLevelAndIdx = [];
+    allChips = [];
+    ghostedLevels = new Set();
+
+    let maxWidth = 0;
+    levels.forEach((lv, level) => {
+      const { boundaries } = flatCache[level];
+      chipsByLevelAndIdx[level] = [];
+      for(let slot = 0; slot < N; slot++){
+        maxWidth = Math.max(maxWidth, xForSlot(slot, boundaries) + CHIP);
+      }
+      for(let idx = 0; idx < N; idx++){
+        const { x: targetX, y: targetY } = posFor(level, idx);
+        const chip = document.createElement('div');
+        chip.className = 'chip';
+        chip.textContent = values[idx];
+        if(level === 0){
+          chip.style.transform = `translate(${targetX}px, ${targetY}px)`;
+          chip.classList.add('revealed');
+        } else {
+          const { x: prevX, y: prevY } = posFor(level - 1, idx);
+          chip.style.transform = `translate(${prevX}px, ${prevY}px)`;
+          chip.dataset.targetX = targetX;
+          chip.dataset.targetY = targetY;
+        }
+        chart.appendChild(chip);
+        createdElements.push(chip);
+        chipsByLevelAndIdx[level][idx] = chip;
+        allChips.push(chip);
+      }
+    });
+
+    chart.style.width = maxWidth + 'px';
+    chart.style.height = (levels.length * ROW_HEIGHT) + 'px';
+
+    cutLineEls = [];
+    for(let i = 0; i < N; i++){
+      const line = document.createElement('div');
+      line.className = 'cutLine';
+      chart.appendChild(line);
+      createdElements.push(line);
+      cutLineEls.push(line);
+    }
+
+    chart.appendChild(markerL);
+    chart.appendChild(markerR);
+
+    ensureGhostsForLevel(0); // Startzeile ist von Anfang an sichtbar, alles andere erst wenn dran
+
+    return built.ops;
+  }
+
+  function ensureGhostsForLevel(level){
+    if(ghostedLevels.has(level)) return;
+    ghostedLevels.add(level);
+    const { boundaries } = flatCache[level];
+    for(let slot = 0; slot < N; slot++){
+      const x = xForSlot(slot, boundaries);
+      const ghost = document.createElement('div');
+      ghost.className = 'chipGhost';
+      ghost.style.transform = `translate(${x}px, ${level * ROW_HEIGHT}px)`;
+      chart.appendChild(ghost);
+      createdElements.push(ghost);
+    }
+  }
+
+  function showCutLines(sourceLevel, cuts){
+    const { boundaries } = flatCache[sourceLevel];
+    cuts.forEach((slot, i) => {
+      const leftEdge = xForSlot(slot - 1, boundaries) + CHIP;
+      const rightEdge = xForSlot(slot, boundaries);
+      const midX = (leftEdge + rightEdge) / 2 - 1;
+      const line = cutLineEls[i];
+      line.style.transform = `translate(${midX}px, ${sourceLevel * ROW_HEIGHT}px)`;
+      line.classList.add('visible');
+    });
+  }
+
+  function hideCutLines(){
+    cutLineEls.forEach(l => l.classList.remove('visible'));
+  }
+
+  function setMarker(el, level, idx){
+    if(level === null || level === undefined || idx === null || idx === undefined){
+      el.classList.remove('visible');
+      return;
+    }
+    const { x, y } = posFor(level, idx);
+    el.style.transform = `translate(${x}px, ${y - 14}px)`;
+    el.classList.add('visible');
+  }
+
+  function clearCompareMark(){
+    allChips.forEach(c => c.classList.remove('comparing'));
+  }
+
+  function revealChip(level, idx){
+    ensureGhostsForLevel(level);
+    const chip = chipsByLevelAndIdx[level][idx];
+    chip.style.transform = `translate(${chip.dataset.targetX}px, ${chip.dataset.targetY}px)`;
+    chip.classList.add('revealed');
+  }
+
+  function revealLevel(level){
+    ensureGhostsForLevel(level);
+    for(let idx = 0; idx < N; idx++){
+      const chip = chipsByLevelAndIdx[level][idx];
+      const slot = flatCache[level].slotOf[idx];
+      chip.style.transitionDelay = (slot * 40) + 'ms';
+      chip.style.transform = `translate(${chip.dataset.targetX}px, ${chip.dataset.targetY}px)`;
+      chip.classList.add('revealed');
+    }
+    setTimeout(() => {
+      for(let idx = 0; idx < N; idx++) chipsByLevelAndIdx[level][idx].style.transitionDelay = '0ms';
+    }, 600);
+  }
+
+  function render(op){
+    clearCompareMark();
+    if(op.type === 'split'){
+      setMarker(markerL, null, null);
+      setMarker(markerR, null, null);
+      pickSideEl.textContent = '–';
+      showCutLines(op.sourceLevel, op.cuts);
+      setTimeout(() => {
+        hideCutLines();
+        revealLevel(op.level);
+      }, 380);
+      return;
+    }
+    if(op.type === 'passthrough'){
+      setMarker(markerL, null, null);
+      setMarker(markerR, null, null);
+      pickSideEl.textContent = '–';
+      revealChip(op.targetLevel, op.picked);
+      return;
+    }
+    if(op.type === 'mergeStep'){
+      // erst L/R vergleichen und stehen lassen, dann erst (verzögert) einsortieren
+      if(op.leftIdx !== null) chipsByLevelAndIdx[op.sourceLevel][op.leftIdx].classList.add('comparing');
+      if(op.rightIdx !== null) chipsByLevelAndIdx[op.sourceLevel][op.rightIdx].classList.add('comparing');
+      setMarker(markerL, op.sourceLevel, op.leftIdx);
+      setMarker(markerR, op.sourceLevel, op.rightIdx);
+      pickSideEl.textContent = '–';
+      setTimeout(() => {
+        pickSideEl.textContent = op.takeLeft ? 'links' : 'rechts';
+        revealChip(op.targetLevel, op.picked);
+      }, 500);
+      return;
+    }
+    if(op.type === 'done'){
+      setMarker(markerL, null, null);
+      setMarker(markerR, null, null);
+      pickSideEl.textContent = '–';
+    }
+  }
+
+  let playing = false;
+  let currentOps = [];
+
+  function changeValues(){
+    if(playing) return;
+    currentOps = buildLayout(randomArray(N));
+    setMarker(markerL, null, null);
+    setMarker(markerR, null, null);
+    pickSideEl.textContent = '–';
+  }
+
+  function play(){
+    if(playing) return;
+    playing = true;
+    playBtn.disabled = true;
+    changeBtn.disabled = true;
+
+    currentOps = buildLayout(values);
+
+    let idx = 0;
+    function step(){
+      if(idx >= currentOps.length){
+        playing = false;
+        playBtn.disabled = false;
+        changeBtn.disabled = false;
+        return;
+      }
+      const op = currentOps[idx];
+      render(op);
+      idx++;
+      const delay = op.type === 'split' ? STEP_MS + 900
+        : op.type === 'mergeStep' ? STEP_MS + 500
+        : STEP_MS;
+      setTimeout(step, delay);
+    }
+    step();
+  }
+
+  changeBtn.addEventListener('click', changeValues);
+  playBtn.addEventListener('click', play);
+
+  changeValues();
+})();
+</script>
+</body>
+</html>
